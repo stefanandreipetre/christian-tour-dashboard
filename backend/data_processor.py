@@ -33,7 +33,7 @@ BOOKING_KEYWORDS = [
     "călători", "calatori", "nr.", "contracts", "contracte",
 ]
 PLAN_KEYWORDS = ["plan", "target", "buget", "budget", "obiectiv", "forecast", "prognoza"]
-LY_KEYWORDS = ["ly", "an anterior", "precedent", "2024", "2023", "prev", "anterior"]
+LY_KEYWORDS = ["an anterior", "precedent", "2024", "2023", "prev year", "anterior", "last year", "ly "]
 AGENCY_KEYWORDS = ["client name", "client", "agentie", "agenție", "agency", "partener", "partner", "denumire"]
 
 MONTH_MAP_RO = {
