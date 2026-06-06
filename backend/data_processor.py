@@ -536,6 +536,218 @@ def build_b2b_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     return _parse_sheet_records(sheet_name, df)
 
 
+def build_b2b_2026_from_target(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
+    """
+    Parse 'Target 2026' sheet into per-agency, per-month B2B records.
+    Columns: AGENTIE, REGIUNE, ORAS, Target Jan26, Realizat Jan26, Target Feb26, Realizat Feb26, ...
+    Returns one record per agency×month with revenue (Realizat) and plan (Target).
+    """
+    sheet_name, df = _get_named_sheet(sheets, ["Target 2026", "Target", "Targets", "Obiective"])
+    if df is None or len(df) < 3:
+        logger.warning("B2B 2026: no target sheet found in provided sheets")
+        return []
+
+    logger.info("B2B 2026: using sheet '%s' (%d rows)", sheet_name, len(df))
+
+    # Locate agency and zona columns
+    agency_col = None
+    zona_col = None
+    for col in df.columns:
+        cs = str(col).strip().upper()
+        if cs == "AGENTIE" and agency_col is None:
+            agency_col = col
+        elif cs in ("REGIUNE", "ORAS") and zona_col is None:
+            zona_col = col
+    if agency_col is None:
+        agency_col = _detect_col(df, AGENCY_KEYWORDS)
+    if zona_col is None:
+        zona_col = _detect_col(df, ZONA_KEYWORDS)
+
+    # Scan columns for Target MonYY / Realizat MonYY patterns
+    # key=(month, year) -> {"target": col_name, "realizat": col_name}
+    month_cols: Dict[tuple, Dict[str, Optional[str]]] = {}
+    for col in df.columns:
+        cs = str(col).strip()
+        cl = cs.lower()
+        is_target   = cl.startswith("target") or cl.startswith("obiectiv")
+        is_realizat = cl.startswith("realizat") or cl.startswith("actual")
+        if not (is_target or is_realizat):
+            continue
+        m = _month_from_str(cs)
+        y = _year_from_str(cs) or date.today().year
+        if m is None:
+            continue
+        key = (m, y)
+        if key not in month_cols:
+            month_cols[key] = {"target": None, "realizat": None}
+        if is_target and month_cols[key]["target"] is None:
+            month_cols[key]["target"] = col
+        elif is_realizat and month_cols[key]["realizat"] is None:
+            month_cols[key]["realizat"] = col
+
+    if not month_cols:
+        logger.warning("B2B 2026: no Target/Realizat month columns found in sheet '%s'", sheet_name)
+        return []
+
+    logger.info("B2B 2026: found %d month×year combos: %s", len(month_cols), sorted(month_cols.keys()))
+
+    records = []
+    for _, row in df.iterrows():
+        if agency_col is None:
+            agency = None
+        else:
+            a = row.get(agency_col)
+            if a is None or (isinstance(a, float) and pd.isna(a)):
+                continue
+            agency = str(a).strip()
+            if not agency or agency.lower() in ("nan", "none", "total", ""):
+                continue
+
+        zona = None
+        if zona_col:
+            z = row.get(zona_col)
+            if z is not None and not (isinstance(z, float) and pd.isna(z)):
+                zona = str(z).strip()
+                if zona.lower() in ("nan", "none", ""):
+                    zona = None
+
+        for (month_num, year_num), cols in month_cols.items():
+            revenue = None
+            plan    = None
+            if cols.get("realizat"):
+                v = _parse_num(row.get(cols["realizat"]))
+                if v and v > 0:
+                    revenue = round(v, 2)
+            if cols.get("target"):
+                v = _parse_num(row.get(cols["target"]))
+                if v and v > 0:
+                    plan = round(v, 2)
+            if revenue is None and plan is None:
+                continue
+            records.append({
+                "sheet":    sheet_name,
+                "month":    month_num,
+                "year":     year_num,
+                "revenue":  revenue,
+                "bookings": None,
+                "plan":     plan,
+                "ly":       None,
+                "agency":   agency,
+                "zona":     zona,
+                "date":     None,
+            })
+
+    logger.info("B2B 2026: parsed %d per-agency records", len(records))
+    return records
+
+
+
+def build_b2c_from_etrip_tina(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
+    """
+    Dedicated parser for 'Etrip + tina' sheet in Dashboard Performance (b2c) file.
+    Known columns: Region, Branch Name, Reservations, Pax, Price Gross, Date, Year, Month Name, ...
+    Produces one record per row with revenue, zona (branch), year, month, and date (for daily/weekly charts).
+    """
+    sheet_name, df = _get_named_sheet(sheets, ["etrip", "tina"])
+    if df is None or len(df) < 5:
+        return []
+
+    logger.info("B2C Etrip+Tina: sheet '%s' (%d rows)", sheet_name, len(df))
+
+    def _find_col(exact_names, fallback_keywords=None):
+        for name in exact_names:
+            for col in df.columns:
+                if str(col).strip() == name:
+                    return col
+        if fallback_keywords:
+            return _detect_col(df, fallback_keywords)
+        return None
+
+    price_col  = _find_col(["Price Gross"], ["price", "gross", "revenue", "vanzari"])
+    branch_col = _find_col(["Branch Name"], ["branch", "zona", "sucursala"])
+    date_col   = _find_col(["Date"],        ["date", "data"])
+    year_col   = _find_col(["Year"],        ["year", "an"])
+    reserv_col = _find_col(["Reservations"],["reservations", "rezervari", "bookings"])
+
+    if price_col is None:
+        logger.warning("B2C Etrip+Tina: no price/revenue column found (cols: %s)", list(df.columns)[:8])
+        return []
+
+    logger.info("B2C Etrip+Tina: price=%s branch=%s date=%s year=%s", price_col, branch_col, date_col, year_col)
+
+    records = []
+    for _, row in df.iterrows():
+        revenue = _parse_num(row.get(price_col))
+        if revenue is None or revenue <= 0:
+            continue
+
+        year_val  = None
+        month_val = None
+        date_iso  = None
+
+        # Extract year+month from Date column (ISO string "2024-06-17T00:00:00")
+        if date_col:
+            raw_date = row.get(date_col)
+            if raw_date is not None and not (isinstance(raw_date, float) and pd.isna(raw_date)):
+                s = str(raw_date).strip()
+                if re.match(r"\d{4}-\d{2}-\d{2}", s):
+                    try:
+                        year_val  = int(s[:4])
+                        month_val = int(s[5:7])
+                        date_iso  = s[:10]          # "YYYY-MM-DD"
+                    except Exception:
+                        pass
+                if year_val is None:
+                    month_val = _parse_month(s)
+
+        # Fallback: Year column
+        if year_val is None and year_col:
+            y = row.get(year_col)
+            if y is not None and not (isinstance(y, float) and pd.isna(y)):
+                try:
+                    year_val = int(float(y))
+                except Exception:
+                    pass
+
+        if year_val is None:
+            year_val = date.today().year
+        if month_val is None:
+            continue   # cannot place record without month
+
+        zona = None
+        if branch_col:
+            z = row.get(branch_col)
+            if z is not None and not (isinstance(z, float) and pd.isna(z)):
+                zona = str(z).strip()
+                if zona.lower() in ("nan", "none", ""):
+                    zona = None
+
+        bookings = None
+        if reserv_col:
+            b = row.get(reserv_col)
+            if b is not None and not (isinstance(b, float) and pd.isna(b)):
+                try:
+                    bookings = int(float(b))
+                except Exception:
+                    pass
+
+        records.append({
+            "sheet":    sheet_name,
+            "month":    month_val,
+            "year":     year_val,
+            "revenue":  round(revenue, 2),
+            "bookings": bookings,
+            "plan":     None,
+            "ly":       None,
+            "agency":   None,
+            "zona":     zona,
+            "date":     date_iso,
+        })
+
+    logger.info("B2C Etrip+Tina: parsed %d records", len(records))
+    return records
+
+
 def build_b2c_from_monthly_total_sheets(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     """
     Use IAN/FEB/.../DEC sheets that have a 'TOTAL' column (etrip+Tina combined).
@@ -606,13 +818,19 @@ def build_b2c_from_monthly_total_sheets(sheets: Dict[str, pd.DataFrame]) -> List
 
 def build_b2c_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     """
-    B2C data — three strategies tried in order:
-    1. Monthly IAN/FEB/.../DEC sheets with TOTAL column (target file structure — clean, has branch/region data).
-    2. Monthly 'etrip ian/feb/...' + 'Tina ian/feb/...' sheets (B2C Dashboard file).
+    B2C data — four strategies tried in order:
+    0. 'Etrip + tina' sheet with known columns (Dashboard Performance b2c file) — preferred.
+    1. Monthly IAN/FEB/.../DEC sheets with TOTAL column (target file structure).
+    2. Monthly 'etrip ian/feb/...' + 'Tina ian/feb/...' sheets.
     3. Generic auto-detect on largest sheet.
     """
+    # Strategy 0: Dedicated Etrip+Tina parser — uses known column names, has branch + date granularity
+    records = build_b2c_from_etrip_tina(sheets)
+    if records:
+        logger.info("B2C: parsed %d records from Etrip+Tina sheet (strategy 0)", len(records))
+        return records
+
     # Strategy 1: IAN/FEB/... monthly sheets with TOTAL column (target file structure)
-    # These sheets have Client Name, Localitate, Regiune, TOTAL columns — clean with branch data.
     records = build_b2c_from_monthly_total_sheets(sheets)
     if records:
         logger.info("B2C: parsed %d records from IAN/FEB/... monthly sheets", len(records))
@@ -921,3 +1139,5 @@ def get_weekly_chart(timeseries: List[Dict], year: Optional[int] = None, n: int 
             "isCurrent": wy == cur_year and wn == cur_week,
         })
     return result
+
+# This marker is not used — functions added above via patch

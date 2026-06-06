@@ -63,9 +63,43 @@ def load_source(key: str) -> None:
         logger.error("Error loading %s: %s", key, exc, exc_info=True)
 
 
+
+def _merge_b2b_with_target_2026() -> None:
+    """
+    After loading all sources, augment the B2B timeseries with per-agency 2026
+    records from the Target file (Target 2026 sheet has both Realizat + Target
+    per agency per month for 2026, while the B2B Monthly file only covers 2024-2025).
+    """
+    b2b_entry    = cache.get_data("b2b")
+    target_entry = cache.get_data("target")
+    if not b2b_entry or not target_entry:
+        logger.warning("B2B merge: b2b or target not loaded — skipping")
+        return
+
+    target_sheets = target_entry.get("sheets", {})
+    b2b_2026 = dp.build_b2b_2026_from_target(target_sheets)
+    if not b2b_2026:
+        logger.warning("B2B merge: no 2026 records extracted from target — keeping existing timeseries")
+        return
+
+    # Keep historical records (2024-2025) from B2B Monthly file; replace any 2026 with Target data
+    historical = [r for r in b2b_entry["timeseries"] if r.get("year") != 2026]
+    merged     = historical + b2b_2026
+    cache.set_data("b2b", b2b_entry["sheets"], merged)
+    logger.info(
+        "B2B merge complete: %d historical + %d 2026 = %d total records",
+        len(historical), len(b2b_2026), len(merged),
+    )
+
+
 def refresh_all() -> None:
     for key in SOURCES:
         load_source(key)
+    # Augment B2B timeseries with 2026 per-agency data from Target file
+    try:
+        _merge_b2b_with_target_2026()
+    except Exception as exc:
+        logger.error("B2B/Target merge failed: %s", exc, exc_info=True)
 
 
 @asynccontextmanager
@@ -207,13 +241,32 @@ def b2b_vs_target(year: Optional[int] = Query(None), month: Optional[int] = Quer
 @app.get("/api/b2c/summary")
 def b2c_summary(year: Optional[int] = Query(None), month: Optional[int] = Query(None)):
     entry = _require("b2c")
-    return dp.get_summary_stats(entry["timeseries"], year=year, month=month)
+    stats = dp.get_summary_stats(entry["timeseries"], year=year, month=month)
+    # B2C timeseries (Etrip+Tina) has no plan column → supplement from Outlook P sheet
+    if stats.get("plan") is None:
+        plan_entry = cache.get_data("outlook")
+        if plan_entry:
+            plan_stats = dp.get_summary_stats(plan_entry["timeseries"], year=year, month=month)
+            if plan_stats.get("plan") is not None:
+                stats["plan"] = plan_stats["plan"]
+                if stats.get("revenue") and stats["plan"]:
+                    stats["vs_plan_pct"] = round((stats["revenue"] / stats["plan"] - 1) * 100, 1)
+    return stats
 
 
 @app.get("/api/b2c/monthly")
 def b2c_monthly(year: Optional[int] = Query(None), compare_year: Optional[int] = Query(None)):
     entry = _require("b2c")
-    return dp.get_monthly_chart(entry["timeseries"], year=year, compare_year=compare_year)
+    chart = dp.get_monthly_chart(entry["timeseries"], year=year, compare_year=compare_year)
+    # Supplement missing plan bars from Outlook P sheet
+    plan_entry = cache.get_data("outlook")
+    if plan_entry:
+        plan_chart = dp.get_monthly_chart(plan_entry["timeseries"], year=year)
+        plan_by_month = {r["month"]: r.get("plan") or r.get("revenue") for r in plan_chart if r.get("month")}
+        for row in chart:
+            if row.get("plan") is None and row.get("month") in plan_by_month:
+                row["plan"] = plan_by_month[row["month"]]
+    return chart
 
 
 @app.get("/api/b2c/yearly")
