@@ -46,6 +46,17 @@ def load_source(key: str) -> None:
         ts     = build(sheets)
         cache.set_data(key, sheets, ts)
         logger.info("Loaded %s: %d sheets, %d rows", key, len(sheets), len(ts))
+
+        # The target file also contains monthly B2C data (IAN/FEB/... sheets).
+        # If b2c isn't loaded yet (or is empty), derive it from the target file sheets.
+        if key == "target":
+            b2c_ts = dp.build_b2c_timeseries(sheets)
+            existing = cache.get_data("b2c")
+            b2c_empty = not existing or len(existing.get("timeseries") or []) == 0
+            if b2c_ts and b2c_empty:
+                cache.set_data("b2c", sheets, b2c_ts)
+                logger.info("B2C derived from target file: %d rows", len(b2c_ts))
+
     except Exception as exc:
         logger.error("Error loading %s: %s", key, exc, exc_info=True)
 

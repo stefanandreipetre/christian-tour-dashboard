@@ -115,7 +115,55 @@ def _parse_month(val) -> Optional[int]:
     return None
 
 
+def _parse_num(s) -> Optional[float]:
+    """
+    Parse a number from any format:
+      - Standard:  "1234567.89"
+      - Romanian:  "1.234.567,89"  (. = thousands, , = decimal)
+      - European:  "1 234 567,89"  (space = thousands, , = decimal)
+      - US-comma:  "1,234,567.89"  (, = thousands, . = decimal)
+    """
+    if s is None:
+        return None
+    if isinstance(s, (int, float)):
+        v = float(s)
+        return None if (v != v) else v  # NaN check
+    raw = str(s).strip().replace("\xa0", "").replace(" ", "")
+    if not raw or raw.lower() in ("nan", "none", "-", "–", "n/a", "#n/a", "#ref!", ""):
+        return None
+    # Direct parse (handles integers and simple decimals)
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    # Multiple dots → dots are thousands separators (Romanian/European)
+    if raw.count(".") > 1:
+        cleaned = raw.replace(".", "").replace(",", ".")
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+    # Single comma, no dot → comma is decimal separator
+    if "," in raw and "." not in raw:
+        try:
+            return float(raw.replace(",", "."))
+        except ValueError:
+            return None
+    # Comma as thousands separator (US style)
+    if "," in raw:
+        try:
+            return float(raw.replace(",", ""))
+        except ValueError:
+            return None
+    return None
+
+
 def _safe_float(val) -> Optional[float]:
+    v = _parse_num(val)
+    return v
+
+
+def _safe_float_legacy(val) -> Optional[float]:
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
     try:
@@ -142,16 +190,39 @@ def _get_named_sheet(sheets: Dict[str, pd.DataFrame], *candidates: str) -> Tuple
 
 
 def load_excel_bytes(raw: bytes, source_key: str) -> Dict[str, pd.DataFrame]:
-    """Parse all sheets from an Excel file. Returns {sheet_name: DataFrame}."""
+    """
+    Parse sheets from an Excel file.
+    For large files (b2c) only loads the relevant sheets to avoid OOM/timeout.
+    Returns {sheet_name: DataFrame}.
+    """
     buf = io.BytesIO(raw)
+
+    # Sheet whitelist filters — only load what we need for heavy files
+    SHEET_FILTERS: Dict[str, Any] = {
+        "b2c": lambda n: any(
+            p in n.strip().lower()
+            for p in ("etrip", "tina", "e-trip", "sphinx")
+        ),
+    }
+
+    filter_fn = SHEET_FILTERS.get(source_key)
     try:
-        sheets = pd.read_excel(buf, sheet_name=None, header=None)
+        if filter_fn:
+            xl = pd.ExcelFile(buf)
+            target_names = [s for s in xl.sheet_names if filter_fn(s)]
+            if not target_names:
+                target_names = xl.sheet_names   # fallback: load all
+            logger.info("%s: selective load — %d sheets: %s", source_key, len(target_names), target_names[:10])
+            buf.seek(0)
+            raw_sheets = pd.read_excel(buf, sheet_name=target_names, header=None)
+        else:
+            raw_sheets = pd.read_excel(buf, sheet_name=None, header=None)
     except Exception as exc:
         logger.error("Failed to parse %s: %s", source_key, exc)
         return {}
 
     result = {}
-    for name, df in sheets.items():
+    for name, df in raw_sheets.items():
         if df.empty or df.dropna(how="all").empty:
             continue
         df = _promote_header(df)
@@ -254,12 +325,19 @@ def _parse_sheet_records(sheet_name: str, df: pd.DataFrame, default_year: Option
 # ---------------------------------------------------------------------------
 
 def _col_sum(df: pd.DataFrame, col: str) -> Optional[float]:
-    """Sum all numeric positive values in a column."""
+    """Sum all positive numeric values in a column, handling Romanian/European number formats."""
     try:
-        vals = pd.to_numeric(df[col], errors="coerce").dropna()
-        vals = vals[vals > 0]
-        return float(vals.sum()) if len(vals) > 0 else None
-    except Exception:
+        # Fast path: direct numeric
+        direct = pd.to_numeric(df[col], errors="coerce")
+        pos = direct[direct > 0].dropna()
+        if len(pos) > 0:
+            return float(pos.sum())
+        # Slow path: manual parse (handles Romanian "1.234.567,89" format)
+        parsed = [_parse_num(v) for v in df[col]]
+        parsed = [v for v in parsed if v is not None and v > 0]
+        return float(sum(parsed)) if parsed else None
+    except Exception as exc:
+        logger.debug("_col_sum '%s': %s", col, exc)
         return None
 
 
@@ -437,20 +515,96 @@ def build_b2b_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     return _parse_sheet_records(sheet_name, df)
 
 
+def build_b2c_from_monthly_total_sheets(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
+    """
+    Use IAN/FEB/.../DEC sheets that have a 'TOTAL' column (etrip+Tina combined).
+    Sheet name → month number; TOTAL column → revenue per agency; sum all agencies.
+    """
+    # Month abbreviations used as sheet names (Romanian + English)
+    MONTH_SHEET_NAMES = {
+        "ian": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "mai": 5,
+        "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    }
+    current_year = date.today().year
+    records = []
+    for sheet_name, df in sheets.items():
+        sn = sheet_name.strip().lower()
+        month_num = MONTH_SHEET_NAMES.get(sn)
+        if not month_num or len(df) < 2:
+            continue
+        # Find TOTAL column
+        total_col = None
+        for col in df.columns:
+            if str(col).strip().upper() == "TOTAL":
+                total_col = col
+                break
+        if total_col is None:
+            # fallback: largest numeric column
+            total_col_candidate = None
+            max_sum = 0.0
+            for col in df.columns:
+                s = _col_sum(df, col)
+                if s and s > max_sum:
+                    max_sum = s
+                    total_col_candidate = col
+            total_col = total_col_candidate
+        if total_col is None:
+            continue
+        total_rev = _col_sum(df, total_col)
+        if not total_rev:
+            continue
+        # Also find Regiune column for branch info
+        zona_col = _detect_col(df, ZONA_KEYWORDS)
+        agency_col = _detect_col(df, AGENCY_KEYWORDS)
+        # Aggregate by branch if possible, otherwise one record per month
+        if zona_col:
+            by_zona: Dict[str, float] = {}
+            by_zona_pax: Dict[str, float] = {}
+            for _, row in df.iterrows():
+                z = str(row.get(zona_col, "")).strip()
+                if not z or z.lower() in ("nan", "none", ""):
+                    z = "—"
+                rev = _parse_num(row.get(total_col))
+                if rev and rev > 0:
+                    by_zona[z] = by_zona.get(z, 0) + rev
+            for zona, rev in by_zona.items():
+                records.append({
+                    "sheet": sheet_name, "month": month_num, "year": current_year,
+                    "revenue": round(rev, 2), "bookings": None,
+                    "plan": None, "ly": None, "agency": None, "zona": zona,
+                })
+        else:
+            records.append({
+                "sheet": sheet_name, "month": month_num, "year": current_year,
+                "revenue": round(total_rev, 2), "bookings": None,
+                "plan": None, "ly": None, "agency": None, "zona": None,
+            })
+        logger.info("B2C monthly sheet '%s': month=%d total=%.0f", sheet_name, month_num, total_rev)
+    return records
+
+
 def build_b2c_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     """
-    B2C Dashboard file → monthly 'etrip ian/feb/...' + 'Tina ian/feb/...' sheets.
-    Each sheet name encodes the month; rows are agencies; largest numeric col = revenue.
-    Falls back to generic detection if monthly sheets not found.
+    B2C data — three strategies tried in order:
+    1. Monthly 'etrip ian/feb/...' + 'Tina ian/feb/...' sheets (B2C Dashboard file).
+    2. Monthly IAN/FEB/.../DEC sheets with TOTAL column (Target file fallback).
+    3. Generic auto-detect on largest sheet.
     """
-    records = _parse_monthly_named_sheets(sheets, "etrip", "tina", "e-trip")
+    # Strategy 1: etrip/Tina monthly sheets
+    records = _parse_monthly_named_sheets(sheets, "etrip", "tina", "e-trip", "sphinx")
     if records:
-        logger.info("B2C: parsed %d monthly records from etrip/Tina sheets", len(records))
+        logger.info("B2C: parsed %d records from etrip/Tina monthly sheets", len(records))
         return records
 
-    # Fallback: try a single sheet named 'etrip' or 'tina'
-    logger.warning("B2C: no monthly etrip/Tina sheets found — trying single-sheet fallback")
-    for candidate in ("etrip", "tina", "e-trip", "b2c", "site"):
+    # Strategy 2: IAN/FEB/... monthly sheets with TOTAL column (target file structure)
+    records = build_b2c_from_monthly_total_sheets(sheets)
+    if records:
+        logger.info("B2C: parsed %d records from IAN/FEB/... monthly sheets", len(records))
+        return records
+
+    # Strategy 3: generic fallback
+    logger.warning("B2C: monthly sheet strategies failed — falling back to generic parser")
+    for candidate in ("etrip", "tina", "b2c", "site"):
         name, df = _get_named_sheet(sheets, candidate)
         if df is not None and len(df) >= 5:
             records.extend(_parse_sheet_records(name, df))
