@@ -18,3 +18,16 @@ export const getB2BvsTarget   = (year, month)   => api.get('/api/b2b/vs-target',
 // B2C
 export const getB2CSummary    = (year, month)   => api.get('/api/b2c/summary',     { params: { year, month } }).then(r => r.data)
 export const getB2CMonthly    = (year, cmpYear) => api.get('/api/b2c/monthly',     { params: { year, compare_year: cmpYear } }).then(r => r.data)
+export const getB2CYearly     = ()              => api.get('/api/b2c/yearly').then(r => r.data)
+export const getB2CRecent     = (n = 8)         => api.get('/api/b2c/recent',      { params: { n } }).then(r => r.data)
+export const getB2CBranches   = (year, top=30)  => api.get('/api/b2c/branches',    { params: { year, top } }).then(r => r.data)
+export const getB2CDaily      = (days = 30)     => api.get('/api/b2c/daily',       { params: { days } }).then(r => r.data)
+export const getB2CWeekly     = (year, n = 16)  => api.get('/api/b2c/weekly',      { params: { year, n } }).then(r => r.data)
+
+// Outlook / plan
+export const getOutlookMonthly = (year)         => api.get('/api/outlook/monthly', { params: { year } }).then(r => r.data)
+export const getOutlookSummary = (year)         => api.get('/api/outlook/summary', { params: { year } }).then(r => r.data)
+
+// Util
+export const getRaw            = (src, sheet)   => api.get(`/api/raw/${src}`,      { params: { sheet } }).then(r => r.data)
+export const triggerRefresh    = ()             => api.post('/api/refresh').then(r => r.data)
