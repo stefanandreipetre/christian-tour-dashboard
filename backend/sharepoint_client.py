@@ -1,76 +1,64 @@
 """
-SharePoint client — downloads Excel files using username/password auth.
-Falls back gracefully so the rest of the app still starts if credentials
-are missing or wrong; each endpoint returns a clear error instead of crashing.
+SharePoint client — downloads Excel files via public sharing links.
+No authentication required if the links are shared as "Anyone with the link".
 """
 
 import os
-import io
 import logging
-from typing import Optional
-from office365.runtime.auth.user_credential import UserCredential
-from office365.sharepoint.client_context import ClientContext
+import requests
 
 logger = logging.getLogger(__name__)
 
-SHAREPOINT_URL = os.getenv("SHAREPOINT_URL", "https://christiantourro-my.sharepoint.com")
-USERNAME = os.getenv("SHAREPOINT_USERNAME", "")
-PASSWORD = os.getenv("SHAREPOINT_PASSWORD", "")
-
-# Paths relative to the SharePoint personal site root
-FILE_PATHS = {
+# Public sharing links (set these in Render environment variables)
+FILE_URLS = {
     "b2b": os.getenv(
-        "FILE_B2B_PATH",
-        "/personal/stefan_petre_christiantour_ro/Documents/B2B Monthly 2024_2025 - Copy.xlsx",
+        "FILE_B2B_URL",
+        "https://christiantourro-my.sharepoint.com/:x:/g/personal/stefan_petre_christiantour_ro/IQCRyA9Y8q_XQr6_YYGDMG63ATEjf4c0UwKZGbJgXqo1lnk?e=tgBmsv",
     ),
     "b2c": os.getenv(
-        "FILE_B2C_PATH",
-        "/personal/stefan_petre_christiantour_ro/Documents/Dashboard Performance ( b2c)_2026.xlsx",
+        "FILE_B2C_URL",
+        "https://christiantourro-my.sharepoint.com/:x:/g/personal/stefan_petre_christiantour_ro/IQD31dYpBNtfTqZKa7Cp_cQ-AZ2HlaCC9hA3CZeSt8hAeec?e=Dnkbb2",
     ),
     "outlook": os.getenv(
-        "FILE_OUTLOOK_PATH",
-        "/personal/stefan_petre_christiantour_ro/Documents/Outlook _CHR_Sales_2026_Site separat.xlsm",
+        "FILE_OUTLOOK_URL",
+        "https://christiantourro-my.sharepoint.com/:x:/g/personal/stefan_petre_christiantour_ro/IQCxyTKBHSRPRYgXkZ1szebIARogcnzsHXbdkp8G3oUP1zI?e=mBKGOU",
     ),
     "target": os.getenv(
-        "FILE_TARGET_PATH",
-        "/personal/stefan_petre_christiantour_ro/Documents/Target B2B 2026_Refacut.xlsx.xlsx",
+        "FILE_TARGET_URL",
+        "https://christiantourro-my.sharepoint.com/:x:/g/personal/stefan_petre_christiantour_ro/IQCcb7Zu7HDjQpIwDe3DTY0aAYETijgWJvzxFprlD2acn5w?e=HGg40E",
     ),
+}
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
 
 
 class SharePointClient:
-    def __init__(self):
-        self._ctx: Optional[ClientContext] = None
-
-    def _get_context(self) -> ClientContext:
-        if self._ctx is None:
-            if not USERNAME or not PASSWORD:
-                raise RuntimeError(
-                    "SHAREPOINT_USERNAME and SHAREPOINT_PASSWORD must be set in environment."
-                )
-            creds = UserCredential(USERNAME, PASSWORD)
-            self._ctx = ClientContext(SHAREPOINT_URL).with_credentials(creds)
-        return self._ctx
 
     def download_file(self, file_key: str) -> bytes:
-        """Download a file by its key and return raw bytes."""
-        path = FILE_PATHS.get(file_key)
-        if not path:
+        """Download a file via its public sharing link."""
+        url = FILE_URLS.get(file_key)
+        if not url:
             raise ValueError(f"Unknown file key: {file_key}")
 
-        ctx = self._get_context()
-        buf = io.BytesIO()
-        try:
-            ctx.web.get_file_by_server_relative_url(path).download(buf).execute_query()
-        except Exception as exc:
-            # Reset context so next call re-authenticates
-            self._ctx = None
-            raise RuntimeError(f"Failed to download '{file_key}' from SharePoint: {exc}") from exc
+        # Append &download=1 to trigger direct file download
+        download_url = url + ("&" if "?" in url else "?") + "download=1"
 
-        buf.seek(0)
-        logger.info("Downloaded %s (%d bytes)", file_key, len(buf.getvalue()))
-        return buf.read()
+        session = requests.Session()
+        session.headers.update(HEADERS)
+
+        try:
+            resp = session.get(download_url, allow_redirects=True, timeout=30)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                f"Failed to download '{file_key}' from SharePoint: {exc}"
+            ) from exc
+
+        content = resp.content
+        logger.info("Downloaded %s (%d bytes)", file_key, len(content))
+        return content
 
     def list_files(self) -> dict:
-        """Return configured file paths (for diagnostics)."""
-        return FILE_PATHS.copy()
+        return FILE_URLS.copy()
