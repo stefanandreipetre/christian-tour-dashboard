@@ -11,7 +11,7 @@ Strategy:
 import io
 import re
 import logging
-from datetime import date, datetime as _dt, timedelta
+from datetime import date
 from typing import Dict, Optional, List, Any, Tuple
 
 import numpy as np
@@ -38,8 +38,6 @@ PLAN_KEYWORDS    = ["plan", "target", "buget", "budget", "obiectiv", "forecast",
 LY_KEYWORDS      = ["an anterior", "precedent", "2024", "2023", "prev year", "anterior", "last year", "ly "]
 AGENCY_KEYWORDS  = ["client name", "client", "agentie", "agenție", "agency", "partener", "partner", "denumire"]
 ZONA_KEYWORDS    = ["zona", "zonă", "branch", "sucursala", "sucursală", "region", "regiune", "city", "oras", "oraș", "birou"]
-DATE_COL_KEYWORDS = ["date", "order date", "data tranzactie", "data rezervare", "service start date"]
-WEEK_COL_KEYWORDS = ["week name", "week", "saptamana", "sapt", "wk"]
 
 MONTH_MAP_RO = {
     "ian": 1, "ianuarie": 1, "feb": 2, "februarie": 2, "mar": 3, "martie": 3,
@@ -184,35 +182,6 @@ def _safe_float_legacy(val) -> Optional[float]:
         return None
 
 
-def _parse_date_val(val) -> Optional[str]:
-    """Parse any date representation to ISO string YYYY-MM-DD, or None."""
-    if val is None:
-        return None
-    # pandas Timestamp or Python datetime/date
-    if hasattr(val, 'strftime'):
-        try:
-            return val.strftime('%Y-%m-%d')
-        except Exception:
-            return None
-    if isinstance(val, float):
-        if val != val:  # NaN
-            return None
-        # Excel serial number (days since 1899-12-30)
-        try:
-            return (_dt(1899, 12, 30) + timedelta(days=val)).strftime('%Y-%m-%d')
-        except Exception:
-            return None
-    s = str(val).strip()
-    if not s or s.lower() in ('nan', 'none', ''):
-        return None
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d.%m.%Y', '%m/%d/%Y', '%d-%m-%Y', '%Y-%m-%d %H:%M:%S'):
-        try:
-            return _dt.strptime(s, fmt).strftime('%Y-%m-%d')
-        except ValueError:
-            pass
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Sheet-level helpers
 # ---------------------------------------------------------------------------
@@ -312,12 +281,6 @@ def _parse_sheet_records(sheet_name: str, df: pd.DataFrame, default_year: Option
     if zona_col and agency_col and zona_col == agency_col:
         zona_col = None
 
-    # Date and week — detected separately, must not overlap with other cols
-    _used = [c for c in [month_col, year_col, revenue_col, booking_col,
-                         plan_col, ly_col, agency_col, zona_col] if c]
-    date_col = _detect_col(df, DATE_COL_KEYWORDS, exclude_cols=_used)
-    week_col = _detect_col(df, WEEK_COL_KEYWORDS, exclude_cols=_used + ([date_col] if date_col else []))
-
     logger.debug(
         "Sheet '%s': month=%s year=%s revenue=%s booking=%s plan=%s ly=%s agency=%s zona=%s",
         sheet_name, month_col, year_col, revenue_col, booking_col, plan_col, ly_col, agency_col, zona_col,
@@ -354,15 +317,6 @@ def _parse_sheet_records(sheet_name: str, df: pd.DataFrame, default_year: Option
             if not zona or zona.lower() in ("nan", "none", "total", "grand total"):
                 zona = None
 
-        # Date and week
-        date_val = _parse_date_val(row.get(date_col)) if date_col else None
-        week_val = None
-        if week_col:
-            wv = row.get(week_col)
-            if wv is not None and not (isinstance(wv, float) and wv != wv):
-                ws = str(wv).strip()
-                week_val = ws if ws.lower() not in ('nan', 'none', '') else None
-
         rec = {
             "sheet":    sheet_name,
             "month":    month_val,
@@ -373,10 +327,8 @@ def _parse_sheet_records(sheet_name: str, df: pd.DataFrame, default_year: Option
             "ly":       ly,
             "agency":   agency,
             "zona":     zona,
-            "date":     date_val,
-            "week":     week_val,
         }
-        if rec["month"] or rec["revenue"] or rec["date"]:
+        if rec["month"] or rec["revenue"]:
             records.append(rec)
 
     return records
@@ -803,9 +755,9 @@ def get_yearly_summary(timeseries: List[Dict]) -> List[Dict]:
     return result
 
 
-def get_agency_breakdown(timeseries: List[Dict], year: Optional[int] = None, top: int = 20) -> List[Dict]:
+def get_agency_breakdown(timeseries: List[Dict], year: Optional[int] = None, month: Optional[int] = None, top: int = 20) -> List[Dict]:
     """Top agencies by revenue."""
-    rows = [r for r in timeseries if r.get("agency") and (not year or r.get("year") == year)]
+    rows = [r for r in timeseries if r.get("agency") and (not year or r.get("year") == year) and (not month or r.get("month") == month)]
     by_agency: Dict[str, Dict] = {}
     for r in rows:
         ag = r["agency"]
@@ -815,4 +767,64 @@ def get_agency_breakdown(timeseries: List[Dict], year: Optional[int] = None, top
         by_agency[ag]["bookings"] += r.get("bookings") or 0
         by_agency[ag]["plan"]     += r.get("plan")     or 0
 
-    sorted_agencies = 
+    sorted_agencies = sorted(by_agency.values(), key=lambda x: x["revenue"], reverse=True)
+    result = []
+    for a in sorted_agencies[:top]:
+        a["revenue"]     = round(a["revenue"], 0)
+        a["plan"]        = round(a["plan"], 0)
+        a["vs_plan_pct"] = round((a["revenue"] / a["plan"] - 1) * 100, 1) if a["plan"] else None
+        result.append(a)
+    return result
+
+
+def get_branch_breakdown(timeseries: List[Dict], year: Optional[int] = None, month: Optional[int] = None, top: int = 30) -> List[Dict]:
+    """Revenue + bookings grouped by zona/branch."""
+    rows = [r for r in timeseries if r.get("zona") and (not year or r.get("year") == year) and (not month or r.get("month") == month)]
+    by_zona: Dict[str, Dict] = {}
+    for r in rows:
+        z = r["zona"]
+        if z not in by_zona:
+            by_zona[z] = {"branch": z, "revenue": 0.0, "bookings": 0.0}
+        by_zona[z]["revenue"]  += r.get("revenue")  or 0
+        by_zona[z]["bookings"] += r.get("bookings") or 0
+
+    result = sorted(by_zona.values(), key=lambda x: x["revenue"], reverse=True)
+    for row in result[:top]:
+        row["revenue"]  = round(row["revenue"],  0)
+        row["bookings"] = round(row["bookings"], 0)
+    return result[:top]
+
+
+def get_recent_months(timeseries: List[Dict], n: int = 6) -> List[Dict]:
+    """Last N months of data sorted by year+month for 'recent trend' view."""
+    MONTH_NAMES = ["Ian", "Feb", "Mar", "Apr", "Mai", "Iun", "Iul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    by_ym: Dict[Tuple[int, int], Dict] = {}
+    for r in timeseries:
+        y, m = r.get("year"), r.get("month")
+        if not y or not m:
+            continue
+        key = (y, m)
+        if key not in by_ym:
+            by_ym[key] = {"year": y, "month": m, "monthName": f"{MONTH_NAMES[m-1]} {str(y)[-2:]}", "revenue": 0.0, "bookings": 0.0}
+        by_ym[key]["revenue"]  += r.get("revenue")  or 0
+        by_ym[key]["bookings"] += r.get("bookings") or 0
+
+    sorted_ym = sorted(by_ym.values(), key=lambda x: (x["year"], x["month"]))
+    result = sorted_ym[-n:]
+    for row in result:
+        row["revenue"]  = round(row["revenue"],  0)
+        row["bookings"] = round(row["bookings"], 0)
+    return result
+
+
+def sheets_metadata(sheets: Dict[str, pd.DataFrame]) -> Dict:
+    """Return column names and sample rows for each sheet (for configuration UI)."""
+    meta = {}
+    for name, df in sheets.items():
+        sample = df.head(5).replace({np.nan: None}).to_dict(orient="records")
+        meta[name] = {
+            "columns": list(df.columns),
+            "rows":    len(df),
+            "sample":  sample,
+        }
+    return meta

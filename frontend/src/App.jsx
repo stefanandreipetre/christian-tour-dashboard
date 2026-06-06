@@ -13,8 +13,8 @@ import WeeklyChart    from './components/WeeklyChart'
 import { fmtEur } from './utils/currency'
 import {
   getStatus, getOverview,
-  getB2BMonthly, getB2BYearly, getB2BRecent, getB2BAgencies, getB2BvsTarget, getB2BBranches,
-  getB2CMonthly, getB2CYearly, getB2CRecent, getB2CBranches, getB2CDaily, getB2CWeekly,
+  getB2BSummary, getB2BMonthly, getB2BYearly, getB2BRecent, getB2BAgencies, getB2BvsTarget, getB2BBranches,
+  getB2CSummary, getB2CMonthly, getB2CYearly, getB2CRecent, getB2CBranches, getB2CDaily, getB2CWeekly,
   getOutlookMonthly,
 } from './api'
 
@@ -67,6 +67,8 @@ export default function App() {
 
   const [status, setStatus]             = useState(null)
   const [overview, setOverview]         = useState(null)
+  const [b2bSummaryData, setB2bSummaryData] = useState(null)
+  const [b2cSummaryData, setB2cSummaryData] = useState(null)
   const [b2bMonthly, setB2bMonthly]     = useState([])
   const [b2bRecent, setB2bRecent]       = useState([])
   const [b2bYearly, setB2bYearly]       = useState([])
@@ -91,25 +93,29 @@ export default function App() {
       const results = await Promise.allSettled([
         getStatus(),
         getOverview(year),
+        getB2BSummary(year, month),
+        getB2CSummary(year, month),
         getB2BMonthly(year, compareYear),
         getB2BRecent(8),
         getB2BYearly(),
         getB2CMonthly(year, compareYear),
         getB2CRecent(8),
         getB2CYearly(),
-        getB2BAgencies(year, 30),
+        getB2BAgencies(year, month, 30),
         getB2BvsTarget(year, month),
-        getB2BBranches(year),
-        getB2CBranches(year),
+        getB2BBranches(year, month),
+        getB2CBranches(year, month),
         getOutlookMonthly(year),
         getB2CDaily(b2cDays),
         getB2CWeekly(null, 16),
       ])
 
-      const [st, ov, b2bM, b2bR, b2bY, b2cM, b2cR, b2cY, ag, bvt, b2bBr, b2cBr, outM, b2cD, b2cW] = results
+      const [st, ov, b2bSum, b2cSum, b2bM, b2bR, b2bY, b2cM, b2cR, b2cY, ag, bvt, b2bBr, b2cBr, outM, b2cD, b2cW] = results
 
       if (st.status    === 'fulfilled') setStatus(st.value)
       if (ov.status    === 'fulfilled') setOverview(ov.value)
+      if (b2bSum.status === 'fulfilled') setB2bSummaryData(b2bSum.value)
+      if (b2cSum.status === 'fulfilled') setB2cSummaryData(b2cSum.value)
       if (b2bM.status  === 'fulfilled') setB2bMonthly(b2bM.value)
       if (b2bR.status  === 'fulfilled') setB2bRecent(b2bR.value)
       if (b2bY.status  === 'fulfilled') setB2bYearly(b2bY.value)
@@ -136,8 +142,8 @@ export default function App() {
     return () => clearInterval(id)
   }, [fetchAll])
 
-  const b2bSummary = overview?.b2b?.summary
-  const b2cSummary = overview?.b2c?.summary
+  const b2bSummary = b2bSummaryData ?? overview?.b2b?.summary
+  const b2cSummary = b2cSummaryData ?? overview?.b2c?.summary
   const lastUpdated = status
     ? Math.max(...Object.values(status.sources).map(s => s.updated_at || 0))
     : null

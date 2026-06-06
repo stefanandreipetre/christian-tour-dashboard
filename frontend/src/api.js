@@ -11,8 +11,8 @@ export const getB2BSummary    = (year, month)   => api.get('/api/b2b/summary',  
 export const getB2BMonthly    = (year, cmpYear) => api.get('/api/b2b/monthly',     { params: { year, compare_year: cmpYear } }).then(r => r.data)
 export const getB2BYearly     = ()              => api.get('/api/b2b/yearly').then(r => r.data)
 export const getB2BRecent     = (n = 8)         => api.get('/api/b2b/recent',      { params: { n } }).then(r => r.data)
-export const getB2BAgencies   = (year, top=20)  => api.get('/api/b2b/agencies',    { params: { year, top } }).then(r => r.data)
-export const getB2BBranches   = (year, top=30)  => api.get('/api/b2b/branches',    { params: { year, top } }).then(r => r.data)
+export const getB2BAgencies   = (year, month, top=20) => api.get('/api/b2b/agencies', { params: { year, month, top } }).then(r => r.data)
+export const getB2BBranches   = (year, month, top=30) => api.get('/api/b2b/branches', { params: { year, month, top } }).then(r => r.data)
 export const getB2BvsTarget   = (year, month)   => api.get('/api/b2b/vs-target',   { params: { year, month } }).then(r => r.data)
 
 // B2C
@@ -20,7 +20,7 @@ export const getB2CSummary    = (year, month)   => api.get('/api/b2c/summary',  
 export const getB2CMonthly    = (year, cmpYear) => api.get('/api/b2c/monthly',     { params: { year, compare_year: cmpYear } }).then(r => r.data)
 export const getB2CYearly     = ()              => api.get('/api/b2c/yearly').then(r => r.data)
 export const getB2CRecent     = (n = 8)         => api.get('/api/b2c/recent',      { params: { n } }).then(r => r.data)
-export const getB2CBranches   = (year, top=30)  => api.get('/api/b2c/branches',    { params: { year, top } }).then(r => r.data)
+export const getB2CBranches   = (year, month, top=30) => api.get('/api/b2c/branches', { params: { year, month, top } }).then(r => r.data)
 export const getB2CDaily      = (days = 30)     => api.get('/api/b2c/daily',       { params: { days } }).then(r => r.data)
 export const getB2CWeekly     = (year, n = 16)  => api.get('/api/b2c/weekly',      { params: { year, n } }).then(r => r.data)
 

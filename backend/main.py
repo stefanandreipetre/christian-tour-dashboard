@@ -174,15 +174,15 @@ def b2b_recent(n: int = Query(8, ge=2, le=24)):
 
 
 @app.get("/api/b2b/agencies")
-def b2b_agencies(year: Optional[int] = Query(None), top: int = Query(20, ge=1, le=100)):
+def b2b_agencies(year: Optional[int] = Query(None), month: Optional[int] = Query(None), top: int = Query(20, ge=1, le=100)):
     entry = _require("b2b")
-    return dp.get_agency_breakdown(entry["timeseries"], year=year, top=top)
+    return dp.get_agency_breakdown(entry["timeseries"], year=year, month=month, top=top)
 
 
 @app.get("/api/b2b/branches")
-def b2b_branches(year: Optional[int] = Query(None), top: int = Query(30, ge=1, le=100)):
+def b2b_branches(year: Optional[int] = Query(None), month: Optional[int] = Query(None), top: int = Query(30, ge=1, le=100)):
     entry = _require("b2b")
-    return dp.get_branch_breakdown(entry["timeseries"], year=year, top=top)
+    return dp.get_branch_breakdown(entry["timeseries"], year=year, month=month, top=top)
 
 
 @app.get("/api/b2b/vs-target")
@@ -229,9 +229,9 @@ def b2c_recent(n: int = Query(8, ge=2, le=24)):
 
 
 @app.get("/api/b2c/branches")
-def b2c_branches(year: Optional[int] = Query(None), top: int = Query(30, ge=1, le=100)):
+def b2c_branches(year: Optional[int] = Query(None), month: Optional[int] = Query(None), top: int = Query(30, ge=1, le=100)):
     entry = _require("b2c")
-    return dp.get_branch_breakdown(entry["timeseries"], year=year, top=top)
+    return dp.get_branch_breakdown(entry["timeseries"], year=year, month=month, top=top)
 
 
 @app.get("/api/b2c/daily")
