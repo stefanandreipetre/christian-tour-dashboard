@@ -828,3 +828,89 @@ def sheets_metadata(sheets: Dict[str, pd.DataFrame]) -> Dict:
             "sample":  sample,
         }
     return meta
+
+
+def get_daily_chart(timeseries: List[Dict], days: int = 30) -> List[Dict]:
+    """Last N calendar days of B2C revenue vs same day last year."""
+    from datetime import date, timedelta
+    today = date.today()
+    result = []
+    for i in range(days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        ly = d.replace(year=d.year - 1)
+
+        def rev_for_date(dt):
+            total = 0.0
+            found = False
+            for r in timeseries:
+                rd = r.get("date")
+                if rd is None:
+                    continue
+                if hasattr(rd, 'date'):
+                    rd = rd.date()
+                elif isinstance(rd, str):
+                    try:
+                        from datetime import datetime
+                        rd = datetime.fromisoformat(rd).date()
+                    except Exception:
+                        continue
+                if rd == dt:
+                    total += r.get("revenue") or 0
+                    found = True
+            return round(total, 0) if found else None
+
+        rev = rev_for_date(d)
+        rev_ly = rev_for_date(ly)
+        result.append({
+            "date":      d.isoformat(),
+            "label":     f"{d.day:02d}/{d.month:02d}",
+            "revenue":   rev,
+            "revenueLY": rev_ly,
+        })
+    return result
+
+
+def get_weekly_chart(timeseries: List[Dict], year: Optional[int] = None, n: int = 16) -> List[Dict]:
+    """Last N ISO weeks of B2C revenue vs same week last year."""
+    from datetime import date, timedelta
+
+    today = date.today()
+    cur_iso = today.isocalendar()
+    cur_year, cur_week = cur_iso[0], cur_iso[1]
+
+    # Build a dict keyed by (iso_year, iso_week) -> revenue
+    by_week: Dict[Tuple[int, int], float] = {}
+    for r in timeseries:
+        rd = r.get("date")
+        if rd is None:
+            continue
+        if hasattr(rd, 'date'):
+            rd = rd.date()
+        elif isinstance(rd, str):
+            try:
+                from datetime import datetime
+                rd = datetime.fromisoformat(rd).date()
+            except Exception:
+                continue
+        iso = rd.isocalendar()
+        key = (iso[0], iso[1])
+        by_week[key] = by_week.get(key, 0) + (r.get("revenue") or 0)
+
+    result = []
+    for i in range(n - 1, -1, -1):
+        # Walk back i weeks from current
+        target_date = today - timedelta(weeks=i)
+        iso = target_date.isocalendar()
+        wy, wn = iso[0], iso[1]
+        ly_key = (wy - 1, wn)
+        rev    = by_week.get((wy, wn))
+        rev_ly = by_week.get(ly_key)
+        result.append({
+            "week":      wn,
+            "year":      wy,
+            "weekYear":  f"W{wn:02d}/{str(wy)[-2:]}",
+            "revenue":   round(rev, 0)    if rev    is not None else None,
+            "revenueLY": round(rev_ly, 0) if rev_ly is not None else None,
+            "isCurrent": wy == cur_year and wn == cur_week,
+        })
+    return result
