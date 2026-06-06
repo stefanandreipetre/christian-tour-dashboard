@@ -1,12 +1,6 @@
 import React from 'react'
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-
-function fmt(v) {
-  if (v === null || v === undefined) return '—'
-  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M RON`
-  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}K RON`
-  return `${Math.round(v).toLocaleString('ro-RO')} RON`
-}
+import { fmtEur } from '../utils/currency'
 
 const COLORS = ['#E8440A', '#1A2B5F']
 
@@ -49,11 +43,11 @@ export default function ChannelCompare({ b2bRevenue, b2cRevenue }) {
               <Cell key={i} fill={COLORS[i]} />
             ))}
           </Pie>
-          <Tooltip formatter={(v) => fmt(v)} />
+          <Tooltip formatter={(v) => fmtEur(v)} />
           <Legend
             formatter={(value, entry) => (
               <span className="text-sm text-gray-600">
-                {value} — <strong>{fmt(entry.payload.value)}</strong>
+                {value} — <strong>{fmtEur(entry.payload.value)}</strong>
               </span>
             )}
           />
