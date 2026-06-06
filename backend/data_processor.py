@@ -161,14 +161,26 @@ def build_b2b_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
                 except Exception:
                     pass
 
+            def safe_float(col):
+                if not col:
+                    return None
+                val = row.get(col)
+                if val is None or (isinstance(val, float) and pd.isna(val)):
+                    return None
+                try:
+                    cleaned = str(val).strip().replace(",", ".").replace(" ", "")
+                    return float(cleaned) if cleaned and cleaned not in ("-", "–", "N/A", "") else None
+                except (ValueError, TypeError):
+                    return None
+
             rec = {
                 "sheet": sheet_name,
                 "month": month_val,
                 "year": year_val,
-                "revenue": float(row[revenue_col]) if revenue_col and pd.notna(row.get(revenue_col)) else None,
-                "bookings": float(row[booking_col]) if booking_col and pd.notna(row.get(booking_col)) else None,
-                "plan": float(row[plan_col]) if plan_col and pd.notna(row.get(plan_col)) else None,
-                "ly": float(row[ly_col]) if ly_col and pd.notna(row.get(ly_col)) else None,
+                "revenue": safe_float(revenue_col),
+                "bookings": safe_float(booking_col),
+                "plan": safe_float(plan_col),
+                "ly": safe_float(ly_col),
                 "agency": str(row[agency_col]) if agency_col and pd.notna(row.get(agency_col)) else None,
             }
             # Only include rows that have at least month or revenue
