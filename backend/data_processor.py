@@ -22,19 +22,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Column detection keywords (Romanian + English, case-insensitive)
 # ---------------------------------------------------------------------------
-MONTH_KEYWORDS = ["luna", "month", "lună", "perioada", "period", "data", "date", "mon"]
-YEAR_KEYWORDS = ["an", "year", "ani"]
+MONTH_KEYWORDS = ["luna", "month", "lună", "perioada", "period", "data", "date", "mon", "month only"]
+YEAR_KEYWORDS = ["year", "an", "ani"]
 REVENUE_KEYWORDS = [
-    "vanzari", "vânzări", "revenue", "cifra", "valoare", "total", "incasari",
-    "încasări", "sales", "rulaj", "suma", "sumă", "lei", "ron", "eur", "usd",
+    "nett", "net", "revenue", "vanzari", "vânzări", "cifra", "valoare",
+    "incasari", "încasări", "sales", "rulaj", "suma", "sumă", "lei", "ron", "eur", "usd",
 ]
 BOOKING_KEYWORDS = [
-    "rezervari", "rezervări", "bookings", "numar", "număr", "pax", "pasageri",
+    "pax", "rezervari", "rezervări", "bookings", "numar", "număr", "pasageri",
     "călători", "calatori", "nr.", "contracts", "contracte",
 ]
 PLAN_KEYWORDS = ["plan", "target", "buget", "budget", "obiectiv", "forecast", "prognoza"]
 LY_KEYWORDS = ["ly", "an anterior", "precedent", "2024", "2023", "prev", "anterior"]
-AGENCY_KEYWORDS = ["agentie", "agenție", "agency", "partener", "partner", "client", "denumire"]
+AGENCY_KEYWORDS = ["client name", "client", "agentie", "agenție", "agency", "partener", "partner", "denumire"]
 
 MONTH_MAP_RO = {
     "ian": 1, "ianuarie": 1, "feb": 2, "februarie": 2, "mar": 3, "martie": 3,
@@ -140,10 +140,14 @@ def _promote_header(df: pd.DataFrame) -> pd.DataFrame:
 def build_b2b_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     """
     Build a month-by-month B2B revenue timeseries from the B2B Monthly file.
-    Works across any reasonable column layout.
+    Prefers larger transactional sheets over small pivot/summary sheets.
     """
     records = []
-    for sheet_name, df in sheets.items():
+    # Sort: largest sheets first, skip tiny ones
+    sorted_sheets = sorted(sheets.items(), key=lambda x: len(x[1]), reverse=True)
+    for sheet_name, df in sorted_sheets:
+        if len(df) < 5:
+            continue  # skip near-empty sheets
         month_col = _detect_col(df, MONTH_KEYWORDS)
         year_col = _detect_col(df, YEAR_KEYWORDS)
         revenue_col = _detect_col(df, REVENUE_KEYWORDS)
