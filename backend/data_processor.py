@@ -51,6 +51,35 @@ MONTH_MAP_EN = {
     "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
 }
 
+# Combined ordered map (longer keys first to avoid partial matches)
+_ALL_MONTH_KEYS = sorted(
+    list(MONTH_MAP_RO.items()) + list(MONTH_MAP_EN.items()),
+    key=lambda x: -len(x[0])
+)
+
+
+def _month_from_str(s: str) -> Optional[int]:
+    """Extract a month number (1-12) from any string — sheet name, column name, etc."""
+    sl = str(s).strip().lower()
+    for key, num in _ALL_MONTH_KEYS:
+        if key in sl:
+            return num
+    return None
+
+
+def _year_from_str(s: str) -> Optional[int]:
+    """Extract a 4-digit year from a string. Also handles 2-digit suffix like '26'."""
+    s = str(s).strip()
+    m = re.search(r'\b(20\d{2})\b', s)
+    if m:
+        return int(m.group(1))
+    m = re.search(r'(\d{2})\s*$', s)
+    if m:
+        y = int(m.group(1))
+        if 20 <= y <= 40:
+            return 2000 + y
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Column detection helpers
@@ -221,6 +250,173 @@ def _parse_sheet_records(sheet_name: str, df: pd.DataFrame, default_year: Option
 
 
 # ---------------------------------------------------------------------------
+# Wide-format parsers (month columns instead of month rows)
+# ---------------------------------------------------------------------------
+
+def _col_sum(df: pd.DataFrame, col: str) -> Optional[float]:
+    """Sum all numeric positive values in a column."""
+    try:
+        vals = pd.to_numeric(df[col], errors="coerce").dropna()
+        vals = vals[vals > 0]
+        return float(vals.sum()) if len(vals) > 0 else None
+    except Exception:
+        return None
+
+
+def _parse_wide_plan_sheet(sheet_name: str, df: pd.DataFrame, default_year: int) -> List[Dict]:
+    """
+    Outlook 'P' / 'F' / 'LY' / 'OUTLOOK' sheets:
+      rows = metric descriptions, columns = months (Jan, Feb, ..., Dec)
+    Strategy: for each month column, sum all positive numeric values.
+    """
+    # Find month columns by name
+    month_cols: Dict[int, str] = {}
+    for col in df.columns:
+        m = _month_from_str(str(col))
+        if m and m not in month_cols:
+            # Only treat as a month column if name is short (pure month abbr)
+            col_str = str(col).strip().lower()
+            if len(col_str) <= 12 and not col_str.startswith("col_"):
+                month_cols[m] = col
+
+    if not month_cols:
+        logger.warning("Wide plan sheet '%s': no month columns found (cols: %s)", sheet_name, list(df.columns)[:8])
+        return []
+
+    logger.info("Wide plan sheet '%s': found month cols for months %s", sheet_name, sorted(month_cols))
+    records = []
+    for month_num, col in sorted(month_cols.items()):
+        total = _col_sum(df, col)
+        if total is None:
+            continue
+        records.append({
+            "sheet": sheet_name, "month": month_num, "year": default_year,
+            "revenue": None, "bookings": None, "plan": total,
+            "ly": None, "agency": None, "zona": None,
+        })
+    return records
+
+
+def _parse_wide_target_sheet(sheet_name: str, df: pd.DataFrame) -> List[Dict]:
+    """
+    'Target 2026' sheet: rows = agencies, columns = Target Jan26, Realizat Jan26, Target Feb26...
+    Strategy: for each 'Target MonYY' column, sum agency values → monthly target.
+              For matching 'Realizat MonYY' column, sum → monthly actual.
+    """
+    current_year = date.today().year
+    # Collect (month, year, target_col, realizat_col) tuples
+    month_data: Dict[Tuple[int, int], Dict] = {}
+    for col in df.columns:
+        col_str = str(col).strip()
+        col_low = col_str.lower()
+        if col_low.startswith("target") or col_low.startswith("obiectiv"):
+            m = _month_from_str(col_str)
+            y = _year_from_str(col_str) or current_year
+            if m:
+                key = (m, y)
+                if key not in month_data:
+                    month_data[key] = {"target_col": None, "realizat_col": None}
+                month_data[key]["target_col"] = col
+        elif col_low.startswith("realizat") or col_low.startswith("actual"):
+            m = _month_from_str(col_str)
+            y = _year_from_str(col_str) or current_year
+            if m:
+                key = (m, y)
+                if key not in month_data:
+                    month_data[key] = {"target_col": None, "realizat_col": None}
+                month_data[key]["realizat_col"] = col
+
+    if not month_data:
+        logger.warning("Wide target sheet '%s': no Target/Realizat columns found", sheet_name)
+        return []
+
+    logger.info("Wide target sheet '%s': found %d month/year combos", sheet_name, len(month_data))
+    records = []
+    for (month_num, year_num), cols in sorted(month_data.items()):
+        plan    = _col_sum(df, cols["target_col"])   if cols.get("target_col")   else None
+        revenue = _col_sum(df, cols["realizat_col"]) if cols.get("realizat_col") else None
+        if plan is None and revenue is None:
+            continue
+        records.append({
+            "sheet": sheet_name, "month": month_num, "year": year_num,
+            "revenue": revenue, "bookings": None, "plan": plan,
+            "ly": None, "agency": None, "zona": None,
+        })
+    return records
+
+
+def _parse_monthly_named_sheets(sheets: Dict[str, pd.DataFrame], *prefixes: str) -> List[Dict]:
+    """
+    Handle sheets named like 'etrip ian', 'etrip feb', 'Tina ian', 'Tina Feb', ...
+    Each sheet = one month of data; rows = agencies; last large numeric col = revenue.
+    Month is extracted from the sheet name.
+    """
+    current_year = date.today().year
+    records = []
+    for sheet_name, df in sheets.items():
+        name_low = sheet_name.strip().lower()
+        # Only process sheets that start with one of the given prefixes
+        if not any(name_low.startswith(p.lower()) for p in prefixes):
+            continue
+        if len(df) < 2:
+            continue
+        month_num = _month_from_str(sheet_name)
+        if not month_num:
+            continue
+
+        # Find the revenue column: the numeric column with the largest total
+        numeric_sums: Dict[str, float] = {}
+        for col in df.columns:
+            col_str = str(col).strip()
+            if col_str.lower().startswith("col_"):
+                continue  # skip unnamed
+            try:
+                s = pd.to_numeric(df[col], errors="coerce").dropna()
+                s = s[s > 0]
+                if len(s) > 0:
+                    numeric_sums[col] = float(s.sum())
+            except Exception:
+                pass
+
+        if not numeric_sums:
+            # Try unnamed columns (Col_0, Col_1...) — pick the one with largest sum
+            for col in df.columns:
+                try:
+                    s = pd.to_numeric(df[col], errors="coerce").dropna()
+                    s = s[s > 0]
+                    if len(s) > 0:
+                        numeric_sums[col] = float(s.sum())
+                except Exception:
+                    pass
+
+        if not numeric_sums:
+            continue
+
+        # Revenue = column with largest total (most likely the revenue/nett column)
+        rev_col = max(numeric_sums, key=numeric_sums.get)
+        pax_col = None
+        # PAX = numeric column with smallest sum if there are >1 numeric cols
+        if len(numeric_sums) > 1:
+            other = {c: v for c, v in numeric_sums.items() if c != rev_col}
+            pax_col = min(other, key=other.get)
+
+        total_rev = numeric_sums[rev_col]
+        total_pax = numeric_sums.get(pax_col) if pax_col else None
+
+        logger.info(
+            "Monthly sheet '%s': month=%d rev_col='%s' total=%.0f",
+            sheet_name, month_num, rev_col, total_rev
+        )
+        records.append({
+            "sheet": sheet_name, "month": month_num, "year": current_year,
+            "revenue": round(total_rev, 2),
+            "bookings": round(total_pax, 0) if total_pax else None,
+            "plan": None, "ly": None, "agency": None, "zona": None,
+        })
+    return records
+
+
+# ---------------------------------------------------------------------------
 # Source-specific timeseries builders
 # ---------------------------------------------------------------------------
 
@@ -242,17 +438,23 @@ def build_b2b_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
 
 
 def build_b2c_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
-    """B2C Dashboard file → combine 'etrip' + 'tina' sheets."""
-    records = []
-    found_any = False
+    """
+    B2C Dashboard file → monthly 'etrip ian/feb/...' + 'Tina ian/feb/...' sheets.
+    Each sheet name encodes the month; rows are agencies; largest numeric col = revenue.
+    Falls back to generic detection if monthly sheets not found.
+    """
+    records = _parse_monthly_named_sheets(sheets, "etrip", "tina", "e-trip")
+    if records:
+        logger.info("B2C: parsed %d monthly records from etrip/Tina sheets", len(records))
+        return records
+
+    # Fallback: try a single sheet named 'etrip' or 'tina'
+    logger.warning("B2C: no monthly etrip/Tina sheets found — trying single-sheet fallback")
     for candidate in ("etrip", "tina", "e-trip", "b2c", "site"):
         name, df = _get_named_sheet(sheets, candidate)
         if df is not None and len(df) >= 5:
-            logger.info("B2C: using sheet '%s' (%d rows)", name, len(df))
             records.extend(_parse_sheet_records(name, df))
-            found_any = True
-    if not found_any:
-        logger.warning("B2C: 'etrip'/'tina' sheets not found — falling back to largest sheet")
+    if not records:
         sorted_sheets = sorted(sheets.items(), key=lambda x: len(x[1]), reverse=True)
         for name, d in sorted_sheets:
             if len(d) >= 5:
@@ -262,37 +464,43 @@ def build_b2c_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
 
 
 def build_plan_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
-    """Outlook CHR Sales file → 'P' sheet contains the plan/forecast."""
-    sheet_name, df = _get_named_sheet(sheets, "P", "Plan", "Previziuni", "Forecast", "Budget")
-    if df is None or len(df) < 3:
-        logger.warning("Plan: no 'P' sheet found — falling back to largest sheet")
-        sorted_sheets = sorted(sheets.items(), key=lambda x: len(x[1]), reverse=True)
-        for name, d in sorted_sheets:
-            if len(d) >= 3:
-                sheet_name, df = name, d
-                break
-    if df is None:
-        return []
-    logger.info("Plan: using sheet '%s' (%d rows)", sheet_name, len(df))
-    # Default to current year if no year column
+    """
+    Outlook CHR Sales file → 'P' sheet (wide format: Description rows × month columns).
+    Also tries 'F' (Forecast) and 'OUTLOOK' sheets as fallback.
+    """
     current_year = date.today().year
-    return _parse_sheet_records(sheet_name, df, default_year=current_year)
+    for candidate in ("P", "F", "OUTLOOK", "Plan", "Forecast"):
+        sheet_name, df = _get_named_sheet(sheets, candidate)
+        if df is not None and len(df) >= 3:
+            records = _parse_wide_plan_sheet(sheet_name, df, current_year)
+            if records:
+                logger.info("Plan: parsed %d records from '%s' sheet", len(records), sheet_name)
+                return records
+    logger.warning("Plan: wide-format parse failed — falling back to row-based parser")
+    sorted_sheets = sorted(sheets.items(), key=lambda x: len(x[1]), reverse=True)
+    for name, d in sorted_sheets:
+        if len(d) >= 3:
+            return _parse_sheet_records(name, d, default_year=current_year)
+    return []
 
 
 def build_target_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
-    """Target B2B file → 'Target 2026' sheet."""
+    """
+    Target B2B file → 'Target 2026' sheet (wide format: agency rows × Target MonYY columns).
+    """
     sheet_name, df = _get_named_sheet(sheets, "Target 2026", "Target", "Targets", "Obiective")
-    if df is None or len(df) < 3:
-        sorted_sheets = sorted(sheets.items(), key=lambda x: len(x[1]), reverse=True)
-        for name, d in sorted_sheets:
-            if len(d) >= 3:
-                sheet_name, df = name, d
-                break
-    if df is None:
-        return []
-    logger.info("Target: using sheet '%s' (%d rows)", sheet_name, len(df))
+    if df is not None and len(df) >= 3:
+        records = _parse_wide_target_sheet(sheet_name, df)
+        if records:
+            logger.info("Target: parsed %d records from '%s' sheet", len(records), sheet_name)
+            return records
+    logger.warning("Target: wide-format parse failed — falling back to row-based parser")
     current_year = date.today().year
-    return _parse_sheet_records(sheet_name, df, default_year=current_year)
+    sorted_sheets = sorted(sheets.items(), key=lambda x: len(x[1]), reverse=True)
+    for name, d in sorted_sheets:
+        if len(d) >= 3:
+            return _parse_sheet_records(name, d, default_year=current_year)
+    return []
 
 
 # ---------------------------------------------------------------------------
