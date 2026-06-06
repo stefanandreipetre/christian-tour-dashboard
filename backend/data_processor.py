@@ -28,6 +28,7 @@ DATE_KEYWORDS    = ["data", "date", "zi", "day"]
 REVENUE_KEYWORDS = [
     "nett", "net", "revenue", "vanzari", "vânzări", "cifra", "valoare",
     "incasari", "încasări", "sales", "rulaj", "suma", "sumă", "lei", "ron", "eur", "usd",
+    "price gross", "offer price", "price", "gross", "offer",
 ]
 BOOKING_KEYWORDS = [
     "pax", "rezervari", "rezervări", "bookings", "numar", "număr", "pasageri",
@@ -92,6 +93,12 @@ def _score_col(col_name: str, keywords: List[str]) -> int:
 
 def _detect_col(df: pd.DataFrame, keywords: List[str], exclude_cols: Optional[List[str]] = None) -> Optional[str]:
     candidates = [c for c in df.columns if not exclude_cols or c not in exclude_cols]
+    kws_lower = [kw.lower() for kw in keywords]
+    # Fast path: exact match (case-insensitive) — prevents e.g. "Branch Name" stealing year column via "an" substring
+    for c in candidates:
+        if str(c).strip().lower() in kws_lower:
+            return c
+    # Substring scoring fallback
     scores = {c: _score_col(c, keywords) for c in candidates}
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else None
@@ -202,11 +209,13 @@ def load_excel_bytes(raw: bytes, source_key: str) -> Dict[str, pd.DataFrame]:
     """
     buf = io.BytesIO(raw)
 
-    # Sheet whitelist filters — only load what we need for heavy files
+    # Sheet whitelist filters — only load the one sheet we need for heavy files.
+    # "Etrip + tina" (46k rows) has Region, Month Name, Year, Price Gross, Pax — everything needed.
+    # Loading all 8 sheets risks OOM on Render free tier.
     SHEET_FILTERS: Dict[str, Any] = {
-        "b2c": lambda n: any(
-            p in n.strip().lower()
-            for p in ("etrip", "tina", "e-trip", "sphinx")
+        "b2c": lambda n: (
+            "etrip + tina" in n.strip().lower()
+            and "(2)" not in n.strip().lower()
         ),
     }
 
