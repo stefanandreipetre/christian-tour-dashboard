@@ -234,6 +234,8 @@ def b2c_branches(year: Optional[int] = Query(None), month: Optional[int] = Query
     return dp.get_branch_breakdown(entry["timeseries"], year=year, month=month, top=top)
 
 
+# ── Outlook / Plan ────────────────────────────────────────────────────────────
+
 @app.get("/api/b2c/daily")
 def b2c_daily(days: int = Query(30, ge=7, le=365)):
     """Last N days of B2C revenue with same-day LY comparison."""
@@ -247,8 +249,6 @@ def b2c_weekly(year: Optional[int] = Query(None), n: int = Query(16, ge=4, le=52
     entry = _require("b2c")
     return dp.get_weekly_chart(entry["timeseries"], year=year, n=n)
 
-
-# ── Outlook / Plan ────────────────────────────────────────────────────────────
 
 @app.get("/api/outlook/monthly")
 def outlook_monthly(year: Optional[int] = Query(None)):
@@ -314,4 +314,13 @@ def debug_download(source: str = "b2b"):
     download_url = url + ("&" if "?" in url else "?") + "download=1"
     try:
         r = req.get(download_url, allow_redirects=True, timeout=20,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 1
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"})
+        return {
+            "status_code":     r.status_code,
+            "content_type":    r.headers.get("content-type", ""),
+            "content_length":  len(r.content),
+            "final_url":       r.url,
+            "first_200_chars": r.text[:200] if r.status_code != 200 or "html" in r.headers.get("content-type", "") else "(binary file OK)",
+        }
+    except Exception as e:
+        return {"error": str(e)}
