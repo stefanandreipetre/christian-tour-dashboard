@@ -219,6 +219,26 @@ def outlook_summary(year: Optional[int] = Query(None)):
 
 # ── Combined overview ─────────────────────────────────────────────────────────
 
+@app.get("/api/debug/load")
+def debug_load(source: str = "b2b"):
+    """Run the full load pipeline for one source and return result or error."""
+    try:
+        raw = sp.download_file(source)
+        sheets = dp.load_excel_bytes(raw, source)
+        ts = dp.build_b2b_timeseries(sheets)
+        cache.set_data(source, sheets, ts)
+        return {
+            "success": True,
+            "bytes": len(raw),
+            "sheets": {k: {"rows": len(v), "columns": list(v.columns)[:10]} for k, v in sheets.items()},
+            "timeseries_rows": len(ts),
+            "sample": ts[:3] if ts else [],
+        }
+    except Exception as exc:
+        import traceback
+        return {"success": False, "error": str(exc), "traceback": traceback.format_exc()}
+
+
 @app.get("/api/debug/download")
 def debug_download(source: str = "b2b"):
     """Test what SharePoint actually returns for a sharing link."""
