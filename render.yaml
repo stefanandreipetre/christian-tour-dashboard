@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: ct-dashboard-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SHAREPOINT_URL
+        value: https://christiantourro-my.sharepoint.com
+      - key: SHAREPOINT_USERNAME
+        sync: false
+      - key: SHAREPOINT_PASSWORD
+        sync: false
+      - key: FILE_B2B_PATH
+        value: /personal/stefan_petre_christiantour_ro/Documents/B2B Monthly 2024_2025 - Copy.xlsx
+      - key: FILE_B2C_PATH
+        value: /personal/stefan_petre_christiantour_ro/Documents/Dashboard Performance ( b2c)_2026.xlsx
+      - key: FILE_OUTLOOK_PATH
+        value: /personal/stefan_petre_christiantour_ro/Documents/Outlook _CHR_Sales_2026_Site separat.xlsm
+      - key: FILE_TARGET_PATH
+        value: /personal/stefan_petre_christiantour_ro/Documents/Target B2B 2026_Refacut.xlsx.xlsx
+      - key: REFRESH_INTERVAL
+        value: 3600
+      - key: CORS_ORIGINS
+        value: "*"
+    healthCheckPath: /api/status
+    autoDeploy: true
+
+  - type: static
+    name: ct-dashboard-ui
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://ct-dashboard-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    autoDeploy: true
