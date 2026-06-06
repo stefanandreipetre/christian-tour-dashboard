@@ -21,24 +21,33 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
 
-sp = SharePointClient()
+sp        = SharePointClient()
 scheduler = BackgroundScheduler()
 REFRESH_INTERVAL = int(os.getenv("REFRESH_INTERVAL", 3600))
 
 SOURCES = ["b2b", "b2c", "outlook", "target"]
 
+# Map each source key to the correct timeseries builder
+BUILDERS = {
+    "b2b":     dp.build_b2b_timeseries,
+    "b2c":     dp.build_b2c_timeseries,
+    "outlook": dp.build_plan_timeseries,
+    "target":  dp.build_target_timeseries,
+}
+
 
 def load_source(key: str) -> None:
-    """Download one Excel file from SharePoint, parse it, and store in cache."""
+    """Download one Excel file from SharePoint, parse with the correct builder, store in cache."""
     try:
         logger.info("Loading %s …", key)
-        raw = sp.download_file(key)
+        raw    = sp.download_file(key)
         sheets = dp.load_excel_bytes(raw, key)
-        ts = dp.build_b2b_timeseries(sheets)
+        build  = BUILDERS.get(key, dp.build_b2b_timeseries)
+        ts     = build(sheets)
         cache.set_data(key, sheets, ts)
         logger.info("Loaded %s: %d sheets, %d rows", key, len(sheets), len(ts))
     except Exception as exc:
-        logger.error("Error loading %s: %s", key, exc)
+        logger.error("Error loading %s: %s", key, exc, exc_info=True)
 
 
 def refresh_all() -> None:
@@ -48,11 +57,10 @@ def refresh_all() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initial load (best-effort; if creds missing, endpoints return 503)
     try:
         refresh_all()
     except Exception as exc:
-        logger.warning("Initial load failed (check credentials): %s", exc)
+        logger.warning("Initial load failed: %s", exc)
 
     scheduler.add_job(refresh_all, "interval", seconds=REFRESH_INTERVAL, id="refresh")
     scheduler.start()
@@ -60,7 +68,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Christian Tour Dashboard API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Christian Tour Dashboard API", version="2.0.0", lifespan=lifespan)
 
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
@@ -79,7 +87,7 @@ def _require(key: str):
     if not entry:
         raise HTTPException(
             status_code=503,
-            detail=f"Data for '{key}' not loaded yet. Check SharePoint credentials and /api/status.",
+            detail=f"Data for '{key}' not loaded yet. Check /api/status.",
         )
     return entry
 
@@ -92,8 +100,8 @@ def status():
     return {
         "sources": {
             k: {
-                "loaded": cache.is_loaded(k),
-                "updated_at": ts.get(k),
+                "loaded":           cache.is_loaded(k),
+                "updated_at":       ts.get(k),
                 "updated_at_human": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts[k])) if ts.get(k) else None,
             }
             for k in SOURCES
@@ -105,18 +113,17 @@ def status():
 
 @app.post("/api/refresh")
 def manual_refresh(background_tasks: BackgroundTasks):
-    """Trigger an immediate refresh in the background."""
     background_tasks.add_task(refresh_all)
     return {"message": "Refresh started"}
 
 
-# ── raw data (for configuration / debugging) ─────────────────────────────────
+# ── raw data ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/raw/{source}")
 def raw(source: str, sheet: Optional[str] = Query(None)):
     if source not in SOURCES:
         raise HTTPException(400, f"source must be one of {SOURCES}")
-    entry = _require(source)
+    entry  = _require(source)
     sheets = entry["sheets"]
     if sheet:
         if sheet not in sheets:
@@ -128,82 +135,91 @@ def raw(source: str, sheet: Optional[str] = Query(None)):
 # ── B2B endpoints ─────────────────────────────────────────────────────────────
 
 @app.get("/api/b2b/summary")
-def b2b_summary(
-    year: Optional[int] = Query(None),
-    month: Optional[int] = Query(None),
-):
+def b2b_summary(year: Optional[int] = Query(None), month: Optional[int] = Query(None)):
     entry = _require("b2b")
     return dp.get_summary_stats(entry["timeseries"], year=year, month=month)
 
 
 @app.get("/api/b2b/monthly")
-def b2b_monthly(
-    year: Optional[int] = Query(None),
-    compare_year: Optional[int] = Query(None),
-):
+def b2b_monthly(year: Optional[int] = Query(None), compare_year: Optional[int] = Query(None)):
     entry = _require("b2b")
     return dp.get_monthly_chart(entry["timeseries"], year=year, compare_year=compare_year)
 
 
+@app.get("/api/b2b/yearly")
+def b2b_yearly():
+    entry = _require("b2b")
+    return dp.get_yearly_summary(entry["timeseries"])
+
+
+@app.get("/api/b2b/recent")
+def b2b_recent(n: int = Query(8, ge=2, le=24)):
+    entry = _require("b2b")
+    return dp.get_recent_months(entry["timeseries"], n=n)
+
+
 @app.get("/api/b2b/agencies")
-def b2b_agencies(
-    year: Optional[int] = Query(None),
-    top: int = Query(20, ge=1, le=100),
-):
+def b2b_agencies(year: Optional[int] = Query(None), top: int = Query(20, ge=1, le=100)):
     entry = _require("b2b")
     return dp.get_agency_breakdown(entry["timeseries"], year=year, top=top)
 
 
+@app.get("/api/b2b/branches")
+def b2b_branches(year: Optional[int] = Query(None), top: int = Query(30, ge=1, le=100)):
+    entry = _require("b2b")
+    return dp.get_branch_breakdown(entry["timeseries"], year=year, top=top)
+
+
 @app.get("/api/b2b/vs-target")
-def b2b_vs_target(
-    year: Optional[int] = Query(None),
-    month: Optional[int] = Query(None),
-):
+def b2b_vs_target(year: Optional[int] = Query(None), month: Optional[int] = Query(None)):
     b2b = _require("b2b")
     tgt = _require("target")
 
-    actual = dp.get_summary_stats(b2b["timeseries"], year=year, month=month)
-    target = dp.get_summary_stats(tgt["timeseries"], year=year, month=month)
-
-    # Monthly chart with both actual and target
+    actual         = dp.get_summary_stats(b2b["timeseries"], year=year, month=month)
+    target         = dp.get_summary_stats(tgt["timeseries"], year=year, month=month)
     actual_monthly = dp.get_monthly_chart(b2b["timeseries"], year=year)
     target_monthly = dp.get_monthly_chart(tgt["timeseries"], year=year)
 
     combined = []
     for a, t in zip(actual_monthly, target_monthly):
-        combined.append({
-            **a,
-            "target": t.get("revenue"),
-        })
+        combined.append({**a, "target": t.get("revenue")})
 
-    return {
-        "actual": actual,
-        "target_kpi": target,
-        "monthly": combined,
-    }
+    return {"actual": actual, "target_kpi": target, "monthly": combined}
 
 
 # ── B2C endpoints ─────────────────────────────────────────────────────────────
 
 @app.get("/api/b2c/summary")
-def b2c_summary(
-    year: Optional[int] = Query(None),
-    month: Optional[int] = Query(None),
-):
+def b2c_summary(year: Optional[int] = Query(None), month: Optional[int] = Query(None)):
     entry = _require("b2c")
     return dp.get_summary_stats(entry["timeseries"], year=year, month=month)
 
 
 @app.get("/api/b2c/monthly")
-def b2c_monthly(
-    year: Optional[int] = Query(None),
-    compare_year: Optional[int] = Query(None),
-):
+def b2c_monthly(year: Optional[int] = Query(None), compare_year: Optional[int] = Query(None)):
     entry = _require("b2c")
     return dp.get_monthly_chart(entry["timeseries"], year=year, compare_year=compare_year)
 
 
-# ── Outlook / forecast ────────────────────────────────────────────────────────
+@app.get("/api/b2c/yearly")
+def b2c_yearly():
+    entry = _require("b2c")
+    return dp.get_yearly_summary(entry["timeseries"])
+
+
+@app.get("/api/b2c/recent")
+def b2c_recent(n: int = Query(8, ge=2, le=24)):
+    entry = _require("b2c")
+    return dp.get_recent_months(entry["timeseries"], n=n)
+
+
+@app.get("/api/b2c/branches")
+def b2c_branches(year: Optional[int] = Query(None), top: int = Query(30, ge=1, le=100)):
+    entry = _require("b2c")
+    return dp.get_branch_breakdown(entry["timeseries"], year=year, top=top)
+
+
+# ── Outlook / Plan ────────────────────────────────────────────────────────────
 
 @app.get("/api/outlook/monthly")
 def outlook_monthly(year: Optional[int] = Query(None)):
@@ -219,20 +235,39 @@ def outlook_summary(year: Optional[int] = Query(None)):
 
 # ── Combined overview ─────────────────────────────────────────────────────────
 
+@app.get("/api/overview")
+def overview(year: Optional[int] = Query(None)):
+    result = {"year": year or 2026}
+    for key in SOURCES:
+        if cache.is_loaded(key):
+            entry       = cache.get_data(key)
+            result[key] = {
+                "summary": dp.get_summary_stats(entry["timeseries"], year=year),
+                "monthly": dp.get_monthly_chart(entry["timeseries"], year=year),
+            }
+        else:
+            result[key] = None
+    return result
+
+
+# ── Debug endpoints ──────────────────────────────────────────────────────────
+
 @app.get("/api/debug/load")
 def debug_load(source: str = "b2b"):
-    """Run the full load pipeline for one source and return result or error."""
+    """Run the full load pipeline for one source and return structure + sample."""
     try:
-        raw = sp.download_file(source)
+        raw    = sp.download_file(source)
         sheets = dp.load_excel_bytes(raw, source)
-        ts = dp.build_b2b_timeseries(sheets)
+        build  = BUILDERS.get(source, dp.build_b2b_timeseries)
+        ts     = build(sheets)
         cache.set_data(source, sheets, ts)
         return {
-            "success": True,
-            "bytes": len(raw),
-            "sheets": {k: {"rows": len(v), "columns": list(v.columns)[:10]} for k, v in sheets.items()},
+            "success":         True,
+            "bytes":           len(raw),
+            "sheets":          {k: {"rows": len(v), "columns": list(v.columns)[:12]} for k, v in sheets.items()},
             "timeseries_rows": len(ts),
-            "sample": ts[:3] if ts else [],
+            "sample":          ts[:5] if ts else [],
+            "years_found":     sorted(set(r["year"] for r in ts if r.get("year"))),
         }
     except Exception as exc:
         import traceback
@@ -241,7 +276,7 @@ def debug_load(source: str = "b2b"):
 
 @app.get("/api/debug/download")
 def debug_download(source: str = "b2b"):
-    """Test what SharePoint actually returns for a sharing link."""
+    """Test what SharePoint returns for a sharing link."""
     import requests as req
     from sharepoint_client import FILE_URLS
     url = FILE_URLS.get(source, "")
@@ -252,29 +287,11 @@ def debug_download(source: str = "b2b"):
         r = req.get(download_url, allow_redirects=True, timeout=20,
                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"})
         return {
-            "status_code": r.status_code,
-            "content_type": r.headers.get("content-type", ""),
-            "content_length": len(r.content),
-            "final_url": r.url,
-            "first_200_chars": r.text[:200] if r.status_code != 200 or "html" in r.headers.get("content-type","") else "(binary file OK)",
+            "status_code":     r.status_code,
+            "content_type":    r.headers.get("content-type", ""),
+            "content_length":  len(r.content),
+            "final_url":       r.url,
+            "first_200_chars": r.text[:200] if r.status_code != 200 or "html" in r.headers.get("content-type", "") else "(binary file OK)",
         }
     except Exception as e:
         return {"error": str(e)}
-
-
-@app.get("/api/overview")
-def overview(year: Optional[int] = Query(None)):
-    """One call that powers the main dashboard overview."""
-    result = {"year": year or 2025}
-
-    for key in SOURCES:
-        if cache.is_loaded(key):
-            entry = cache.get_data(key)
-            result[key] = {
-                "summary": dp.get_summary_stats(entry["timeseries"], year=year),
-                "monthly": dp.get_monthly_chart(entry["timeseries"], year=year),
-            }
-        else:
-            result[key] = None
-
-    return result
