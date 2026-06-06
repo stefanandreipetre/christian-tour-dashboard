@@ -180,11 +180,16 @@ def _safe_float_legacy(val) -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 def _get_named_sheet(sheets: Dict[str, pd.DataFrame], *candidates: str) -> Tuple[Optional[str], Optional[pd.DataFrame]]:
-    """Return (name, df) for the first sheet matching any candidate name (case-insensitive substring)."""
-    for name, df in sheets.items():
-        name_low = name.strip().lower()
-        for c in candidates:
-            if c.lower() in name_low or name_low == c.lower():
+    """
+    Return (name, df) for the first candidate that matches any sheet name.
+    Candidates are tried in priority order — each candidate is checked against ALL sheets
+    before moving to the next candidate. This ensures 'Target 2026' beats 'Target'.
+    """
+    for c in candidates:
+        c_low = c.lower()
+        for name, df in sheets.items():
+            name_low = name.strip().lower()
+            if c_low == name_low or c_low in name_low:
                 return name, df
     return None, None
 
@@ -586,20 +591,21 @@ def build_b2c_from_monthly_total_sheets(sheets: Dict[str, pd.DataFrame]) -> List
 def build_b2c_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     """
     B2C data — three strategies tried in order:
-    1. Monthly 'etrip ian/feb/...' + 'Tina ian/feb/...' sheets (B2C Dashboard file).
-    2. Monthly IAN/FEB/.../DEC sheets with TOTAL column (Target file fallback).
+    1. Monthly IAN/FEB/.../DEC sheets with TOTAL column (target file structure — clean, has branch/region data).
+    2. Monthly 'etrip ian/feb/...' + 'Tina ian/feb/...' sheets (B2C Dashboard file).
     3. Generic auto-detect on largest sheet.
     """
-    # Strategy 1: etrip/Tina monthly sheets
-    records = _parse_monthly_named_sheets(sheets, "etrip", "tina", "e-trip", "sphinx")
-    if records:
-        logger.info("B2C: parsed %d records from etrip/Tina monthly sheets", len(records))
-        return records
-
-    # Strategy 2: IAN/FEB/... monthly sheets with TOTAL column (target file structure)
+    # Strategy 1: IAN/FEB/... monthly sheets with TOTAL column (target file structure)
+    # These sheets have Client Name, Localitate, Regiune, TOTAL columns — clean with branch data.
     records = build_b2c_from_monthly_total_sheets(sheets)
     if records:
         logger.info("B2C: parsed %d records from IAN/FEB/... monthly sheets", len(records))
+        return records
+
+    # Strategy 2: etrip/Tina monthly sheets (Dashboard Performance file)
+    records = _parse_monthly_named_sheets(sheets, "etrip", "tina", "e-trip", "sphinx")
+    if records:
+        logger.info("B2C: parsed %d records from etrip/Tina monthly sheets", len(records))
         return records
 
     # Strategy 3: generic fallback

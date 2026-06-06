@@ -38,6 +38,13 @@ BUILDERS = {
 
 def load_source(key: str) -> None:
     """Download one Excel file from SharePoint, parse with the correct builder, store in cache."""
+    # B2C is derived from the target file's IAN/FEB/.../DEC monthly sheets.
+    # We skip the direct download of the Dashboard Performance file entirely — it has 50+ sheets
+    # and causes OOM / 502 on Render free tier. The target file contains the same etrip+Tina data.
+    if key == "b2c":
+        logger.info("B2C: skipping direct download — will be derived from target file monthly sheets")
+        return
+
     try:
         logger.info("Loading %s …", key)
         raw    = sp.download_file(key)
@@ -47,15 +54,15 @@ def load_source(key: str) -> None:
         cache.set_data(key, sheets, ts)
         logger.info("Loaded %s: %d sheets, %d rows", key, len(sheets), len(ts))
 
-        # The target file also contains monthly B2C data (IAN/FEB/... sheets).
-        # If b2c isn't loaded yet (or is empty), derive it from the target file sheets.
+        # After loading the target file, always derive and cache B2C from its monthly sheets
+        # (IAN/FEB/.../DEC sheets contain TOTAL = etrip + Tina per agency, with Regiune branch data).
         if key == "target":
             b2c_ts = dp.build_b2c_timeseries(sheets)
-            existing = cache.get_data("b2c")
-            b2c_empty = not existing or len(existing.get("timeseries") or []) == 0
-            if b2c_ts and b2c_empty:
+            if b2c_ts:
                 cache.set_data("b2c", sheets, b2c_ts)
                 logger.info("B2C derived from target file: %d rows", len(b2c_ts))
+            else:
+                logger.warning("B2C: no records derived from target file monthly sheets")
 
     except Exception as exc:
         logger.error("Error loading %s: %s", key, exc, exc_info=True)
