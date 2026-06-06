@@ -110,7 +110,14 @@ def _parse_month(val) -> Optional[int]:
     if isinstance(val, (int, float)):
         v = int(val)
         return v if 1 <= v <= 12 else None
-    s = str(val).strip().lower()
+    s = str(val).strip()
+    # Handle ISO date strings like "2024-01-01" or "2024-01-01T00:00:00"
+    if re.match(r'\d{4}-\d{2}-\d{2}', s):
+        try:
+            return int(s[5:7])  # "2024-01-01" → "01" → 1
+        except Exception:
+            pass
+    s = s.lower()
     for mapping in (MONTH_MAP_RO, MONTH_MAP_EN):
         for key, num in mapping.items():
             if s.startswith(key):
