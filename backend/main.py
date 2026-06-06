@@ -219,6 +219,29 @@ def outlook_summary(year: Optional[int] = Query(None)):
 
 # ── Combined overview ─────────────────────────────────────────────────────────
 
+@app.get("/api/debug/download")
+def debug_download(source: str = "b2b"):
+    """Test what SharePoint actually returns for a sharing link."""
+    import requests as req
+    from sharepoint_client import FILE_URLS
+    url = FILE_URLS.get(source, "")
+    if not url:
+        return {"error": "unknown source"}
+    download_url = url + ("&" if "?" in url else "?") + "download=1"
+    try:
+        r = req.get(download_url, allow_redirects=True, timeout=20,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"})
+        return {
+            "status_code": r.status_code,
+            "content_type": r.headers.get("content-type", ""),
+            "content_length": len(r.content),
+            "final_url": r.url,
+            "first_200_chars": r.text[:200] if r.status_code != 200 or "html" in r.headers.get("content-type","") else "(binary file OK)",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/overview")
 def overview(year: Optional[int] = Query(None)):
     """One call that powers the main dashboard overview."""
