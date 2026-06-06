@@ -5,6 +5,7 @@ Christian Tour Sales Dashboard — FastAPI Backend
 import os
 import logging
 import time
+import threading
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -69,10 +70,12 @@ def refresh_all() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        refresh_all()
-    except Exception as exc:
-        logger.warning("Initial load failed: %s", exc)
+    # Load data in a background thread so uvicorn binds to the port immediately.
+    # Render's port scanner times out if startup takes > ~60s (our files take 2-3 min).
+    # Endpoints return 503 until data is ready — that's acceptable.
+    thread = threading.Thread(target=refresh_all, daemon=True, name="initial-load")
+    thread.start()
+    logger.info("Initial data load started in background thread")
 
     scheduler.add_job(refresh_all, "interval", seconds=REFRESH_INTERVAL, id="refresh")
     scheduler.start()
