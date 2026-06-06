@@ -306,7 +306,6 @@ export default function App() {
 
         {/* ── B2C TAB ───────────────────────────────────────────────────────── */}
         {tab === 'b2c' && (
-               {tab === 'b2c' && (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard title="Vânzări B2C" value={b2cSummary?.revenue}
