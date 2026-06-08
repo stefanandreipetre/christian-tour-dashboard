@@ -857,6 +857,187 @@ def build_b2c_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     return records
 
 
+
+def _parse_b2c_wide_sheet(sheet_name: str, df: pd.DataFrame, year: int) -> List[Dict]:
+    """
+    Parse OUTLOOK or LY wide-format sheet into per-branch, per-month records.
+    Columns: [nan, Description, Jan, Feb, ..., Dec, nan, OUTLOOK, FORECAST, PLAN, ...]
+    Only short month-name columns (<=5 chars) are treated as monthly data.
+    Rows named like 'TOTAL ...' are skipped to avoid double-counting.
+    """
+    # Find month columns — only short col names (Jan/Feb/...) not OUTLOOK/FORECAST/PLAN
+    month_cols: Dict[int, str] = {}
+    for col in df.columns:
+        cs = str(col).strip()
+        m = _month_from_str(cs)
+        if m and m not in month_cols and len(cs) <= 5:
+            month_cols[m] = col
+
+    if not month_cols:
+        logger.warning("B2C wide sheet '%s': no month columns found (cols: %s)",
+                       sheet_name, list(df.columns)[:10])
+        return []
+
+    # Find description / branch name column
+    desc_col = None
+    for col in df.columns:
+        cs = str(col).strip().lower()
+        if cs in ("description", "revenue", "sucursala", "branch", "agentie", "descriere"):
+            desc_col = col
+            break
+    if desc_col is None:
+        # fallback: first column whose values are mostly strings
+        for col in df.columns:
+            if df[col].dtype == object:
+                desc_col = col
+                break
+
+    if desc_col is None:
+        logger.warning("B2C wide sheet '%s': no description column found", sheet_name)
+        return []
+
+    SKIP_KW = ["total", "grand", "subtotal", "header"]
+
+    records = []
+    for _, row in df.iterrows():
+        desc = str(row.get(desc_col, "")).strip()
+        if not desc or desc.lower() in ("nan", "none", ""):
+            continue
+        if any(kw in desc.lower() for kw in SKIP_KW):
+            continue
+
+        for m, col in month_cols.items():
+            v = _parse_num(row.get(col))
+            if v is None or v == 0:
+                continue
+            records.append({
+                "sheet":    sheet_name,
+                "month":    m,
+                "year":     year,
+                "revenue":  round(v, 2),
+                "bookings": None,
+                "plan":     None,
+                "ly":       None,
+                "agency":   None,
+                "zona":     desc,
+                "date":     None,
+            })
+
+    branches = len({r["zona"] for r in records})
+    logger.info("B2C wide sheet '%s' year=%d: %d records across %d branches",
+                sheet_name, year, len(records), branches)
+
+    # If no branch-level rows found, fall back to using the TOTAL REVENUES row
+    # (spreadsheet may only have summary rows, no per-branch detail)
+    if not records:
+        logger.warning("B2C wide sheet '%s': no branch rows — falling back to TOTAL row", sheet_name)
+        for _, row in df.iterrows():
+            desc = str(row.get(desc_col, "")).strip()
+            desc_up = desc.upper()
+            if "TOTAL" in desc_up and ("REVENUE" in desc_up or "VANZARI" in desc_up):
+                for m, col in month_cols.items():
+                    v = _parse_num(row.get(col))
+                    if v and v > 0:
+                        records.append({
+                            "sheet": sheet_name, "month": m, "year": year,
+                            "revenue": round(v, 2), "bookings": None, "plan": None,
+                            "ly": None, "agency": None, "zona": None, "date": None,
+                        })
+                break   # only use first TOTAL REVENUES row
+
+    return records
+
+
+def _parse_b2c_plan_sheet(sheet_name: str, df: pd.DataFrame, year: int) -> List[Dict]:
+    """
+    Parse the P (plan) sheet into one record per month with plan set.
+    Looks for a 'TOTAL REVENUES' row first; falls back to summing all positive values.
+    """
+    month_cols: Dict[int, str] = {}
+    for col in df.columns:
+        cs = str(col).strip()
+        m = _month_from_str(cs)
+        if m and m not in month_cols and len(cs) <= 5:
+            month_cols[m] = col
+
+    if not month_cols:
+        return []
+
+    # Try to find TOTAL REVENUES row
+    desc_col = None
+    for col in df.columns:
+        cs = str(col).strip().lower()
+        if "descri" in cs or cs in ("revenue", "nan", "none"):
+            desc_col = col
+            break
+
+    total_row = None
+    if desc_col is not None:
+        for _, row in df.iterrows():
+            desc = str(row.get(desc_col, "")).strip().upper()
+            if "TOTAL" in desc and ("REVENUE" in desc or "VANZARI" in desc):
+                total_row = row
+                break
+
+    records = []
+    for m, col in month_cols.items():
+        if total_row is not None:
+            v = _parse_num(total_row.get(col))
+        else:
+            v = _col_sum(df, col)
+        if v and v > 0:
+            records.append({
+                "sheet":    sheet_name,
+                "month":    m,
+                "year":     year,
+                "revenue":  None,
+                "bookings": None,
+                "plan":     round(v, 2),
+                "ly":       None,
+                "agency":   None,
+                "zona":     None,
+                "date":     None,
+            })
+
+    logger.info("B2C plan sheet '%s' year=%d: %d monthly plan records", sheet_name, year, len(records))
+    return records
+
+
+def build_b2c_from_outlook_file(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
+    """
+    Build complete B2C timeseries from 'Outlook CHR Sales Site separat' file:
+      OUTLOOK sheet  → per-branch monthly actuals  (current year, revenue field)
+      LY sheet       → per-branch monthly actuals  (prev year,    revenue field)
+      P sheet        → monthly plan totals          (current year, plan field, zona=None)
+
+    Storing LY as year-1 records lets get_monthly_chart(compare_year=year-1) pick them up,
+    and get_summary_stats auto-computes vs_ly_pct from those same records.
+    """
+    current_year = date.today().year
+    records: List[Dict] = []
+
+    name, df = _get_named_sheet(sheets, "OUTLOOK")
+    if df is not None:
+        records.extend(_parse_b2c_wide_sheet(name, df, current_year))
+    else:
+        logger.warning("B2C: OUTLOOK sheet not found (sheets: %s)", list(sheets.keys())[:10])
+
+    name, df = _get_named_sheet(sheets, "LY")
+    if df is not None:
+        records.extend(_parse_b2c_wide_sheet(name, df, current_year - 1))
+    else:
+        logger.warning("B2C: LY sheet not found")
+
+    name, df = _get_named_sheet(sheets, "P")
+    if df is not None:
+        records.extend(_parse_b2c_plan_sheet(name, df, current_year))
+    else:
+        logger.warning("B2C: P sheet not found")
+
+    logger.info("B2C from outlook file: %d total records", len(records))
+    return records
+
+
 def build_plan_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     """
     Outlook CHR Sales file → 'P' sheet (wide format: Description rows × month columns).
@@ -916,6 +1097,15 @@ def get_summary_stats(timeseries: List[Dict], year: Optional[int] = None, month:
     plan     = safe_sum("plan")
     ly       = safe_sum("ly")
     bookings = safe_sum("bookings")
+
+    # If ly field not set on records, derive from year-1 records in same timeseries
+    if ly is None and year:
+        prev_rows = [r for r in timeseries if r.get("year") == year - 1]
+        if month:
+            prev_rows = [r for r in prev_rows if r.get("month") == month]
+        ly_vals = [r["revenue"] for r in prev_rows if r.get("revenue") is not None]
+        if ly_vals:
+            ly = round(sum(ly_vals), 2)
 
     return {
         "revenue":      revenue,

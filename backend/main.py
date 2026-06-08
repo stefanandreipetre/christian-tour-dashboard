@@ -48,16 +48,16 @@ def load_source(key: str) -> None:
         cache.set_data(key, sheets, ts)
         logger.info("Loaded %s: %d sheets, %d rows", key, len(sheets), len(ts))
 
-        # After loading the target file, derive B2C as a fallback if b2c wasn't loaded yet.
-        # The target file's IAN/FEB/.../DEC sheets contain TOTAL = etrip+Tina per agency.
-        if key == "target":
-            existing = cache.get_data("b2c")
-            b2c_ok = existing and len(existing.get("timeseries") or []) > 0
-            if not b2c_ok:
-                b2c_ts = dp.build_b2c_timeseries(sheets)
-                if b2c_ts:
-                    cache.set_data("b2c", sheets, b2c_ts)
-                    logger.info("B2C fallback from target file: %d rows", len(b2c_ts))
+        # Outlook file IS the authoritative B2C source.
+        # After loading it, build the proper B2C timeseries (OUTLOOK/LY/P sheets)
+        # and store it as "b2c" — overwriting any data from the Dashboard Performance file.
+        if key == "outlook":
+            b2c_ts = dp.build_b2c_from_outlook_file(sheets)
+            if b2c_ts:
+                cache.set_data("b2c", sheets, b2c_ts)
+                logger.info("B2C populated from outlook file: %d records", len(b2c_ts))
+            else:
+                logger.warning("B2C: build_b2c_from_outlook_file returned no records — OUTLOOK/LY/P sheets may be missing")
 
     except Exception as exc:
         logger.error("Error loading %s: %s", key, exc, exc_info=True)
