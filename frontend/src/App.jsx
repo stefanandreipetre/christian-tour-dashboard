@@ -78,6 +78,17 @@ function aggregateSummary(rows) {
 }
 
 
+const MONTH_NAMES = ['Ian','Feb','Mar','Apr','Mai','Iun','Iul','Aug','Sep','Oct','Nov','Dec']
+
+// Convert /api/b2c(b2b)/summary rows → chart-ready rows with monthName & revenueLY
+function toChartRows(rows) {
+  if (!Array.isArray(rows)) return []
+  return rows
+    .filter(r => r.month >= 1 && r.month <= 12)
+    .sort((a, b) => a.month - b.month)
+    .map(r => ({ ...r, monthName: MONTH_NAMES[r.month - 1], revenueLY: r.ly || null }))
+}
+
 export default function App() {
   const [tab, setTab]             = useState('overview')
   const [period, setPeriod]       = useState('monthly')
@@ -168,9 +179,16 @@ export default function App() {
     ? Math.max(status.b2c?.updated_at || 0, status.b2b?.updated_at || 0)
     : null
 
-  // Period-aware chart data helpers
-  const b2bChartData = period === 'recent' ? b2bRecent : b2bMonthly
-  const b2cChartData = period === 'recent' ? b2cRecent : b2cMonthly
+  // Chart data from monthly-aggregated summaries (not raw per-branch records)
+  const b2cChartRows = toChartRows(b2cSummaryData)
+  // B2B Daily has PAX not EUR actuals — zero out revenue, show plan line only
+  const b2bChartRows = toChartRows(b2bSummaryData).map(r => ({ ...r, revenue: null }))
+  const b2cChartData = period === 'recent'
+    ? b2cChartRows.filter(r => (r.revenue || 0) > 0 || (r.plan || 0) > 0).slice(-8)
+    : b2cChartRows
+  const b2bChartData = period === 'recent'
+    ? b2bChartRows.filter(r => (r.plan || 0) > 0).slice(-8)
+    : b2bChartRows
 
   const b2bChartTitle = period === 'recent'
     ? 'B2B — Ultimele 8 Luni'
@@ -220,17 +238,17 @@ export default function App() {
         {tab === 'overview' && (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <KPICard title="Vânzări B2B" value={b2bSummary?.revenue}
-                delta={b2bSummary?.vs_ly_pct} deltaLabel={`vs ${compareYear}`}
+              <KPICard title="Plan B2B" value={b2bSummary?.plan}
+                deltaLabel="Target anual"
                 icon="💼" color="orange" loading={loading} />
               <KPICard title="Vânzări B2C / Site" value={b2cSummary?.revenue}
                 delta={b2cSummary?.vs_ly_pct} deltaLabel={`vs ${compareYear}`}
                 icon="🌐" color="navy" loading={loading} />
               <KPICard title="PAX B2B" value={b2bSummary?.bookings}
                 valueType="int" icon="🎫" color="green" loading={loading} />
-              <KPICard title="% Plan B2B" value={b2bSummary?.vs_plan_pct}
+              <KPICard title="% Plan B2B" value={null}
                 valueType="pct"
-                deltaLabel={b2bSummary?.plan ? `Plan: ${fmtEur(b2bSummary.plan)}` : null}
+                deltaLabel="Date EUR B2B indisponibile"
                 icon="🎯" color="purple" loading={loading} />
             </div>
 
@@ -267,7 +285,7 @@ export default function App() {
                   showLY={period === 'monthly'} showPlan={false} />
               </div>
               <div className="grid grid-cols-1 gap-4">
-                <GaugeCard title="Plan B2B" actual={b2bSummary?.revenue} target={b2bSummary?.plan} color="#E8440A" />
+                <GaugeCard title="Plan B2B" actual={null} target={b2bSummary?.plan} color="#E8440A" />
                 <GaugeCard title="Plan B2C" actual={b2cSummary?.revenue} target={b2cSummary?.plan} color="#1A2B5F" />
               </div>
             </div>
@@ -280,14 +298,14 @@ export default function App() {
         {tab === 'b2b' && (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <KPICard title="Vânzări B2B" value={b2bSummary?.revenue}
-                delta={b2bSummary?.vs_ly_pct} deltaLabel={`vs ${compareYear}`}
+              <KPICard title="Plan B2B" value={b2bSummary?.plan}
+                deltaLabel="Target anual"
                 icon="💼" color="orange" loading={loading} />
               <KPICard title="PAX" value={b2bSummary?.bookings}
                 valueType="int" icon="🎫" color="green" loading={loading} />
               <KPICard title="Plan" value={b2bSummary?.plan}
                 icon="📋" color="navy" loading={loading} />
-              <KPICard title="% vs Plan" value={b2bSummary?.vs_plan_pct}
+              <KPICard title="% vs Plan" value={null}
                 valueType="pct" icon="🎯" color="purple" loading={loading} />
             </div>
 
@@ -325,7 +343,7 @@ export default function App() {
                 <AgencyTable data={agencies} loading={loading} />
               </div>
               <GaugeCard title={`Plan B2B ${year}`}
-                actual={b2bSummary?.revenue} target={b2bSummary?.plan} color="#E8440A" />
+                actual={null} target={b2bSummary?.plan} color="#E8440A" />
             </div>
           </>
         )}
