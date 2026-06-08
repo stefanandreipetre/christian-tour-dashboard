@@ -41,13 +41,28 @@ def load_source(key: str) -> None:
     """
     Download one Excel file, parse it, store ONLY timeseries in cache.
     Raw DataFrames are discarded immediately after parsing to stay within 512 MB RAM.
+
+    "target" is handled specially: the file has 45+ sheets so we skip pandas entirely
+    and use openpyxl read_only to read just 2 rows we need.
     """
     import gc
     try:
         logger.info("Loading %s …", key)
-        raw    = sp.download_file(key)
+        raw = sp.download_file(key)
+
+        # ── Target: skip pandas, use openpyxl read_only ──────────────────
+        if key == "target":
+            b2b_2026 = dp.build_b2b_2026_from_target(raw)
+            del raw
+            gc.collect()
+            _merge_b2b_2026(b2b_2026)
+            cache.set_data(key, None, b2b_2026)
+            logger.info("Loaded target: %d B2B 2026 records (openpyxl, no pandas)", len(b2b_2026))
+            return
+
+        # ── All other sources: pandas with selective sheet loading ────────
         sheets = dp.load_excel_bytes(raw, key)
-        del raw   # free download buffer immediately
+        del raw
         gc.collect()
 
         build = BUILDERS.get(key, dp.build_b2b_timeseries)
@@ -61,17 +76,6 @@ def load_source(key: str) -> None:
                 logger.info("B2C populated from outlook file: %d records", len(b2c_ts))
             else:
                 logger.warning("B2C: build_b2c_from_outlook_file returned no records")
-
-        # Target → also build B2B 2026 timeseries and merge with historical B2B
-        if key == "target":
-            b2b_2026 = dp.build_b2b_2026_from_target(sheets)
-            del sheets   # free target sheets now — large file
-            gc.collect()
-            sheets = {}  # don't use sheets below
-            _merge_b2b_2026(b2b_2026)
-            cache.set_data(key, None, ts)
-            logger.info("Loaded %s: %d rows", key, len(ts))
-            return
 
         del sheets
         gc.collect()
