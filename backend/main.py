@@ -388,3 +388,39 @@ def debug_download(source: str = "b2b"):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/api/debug/sheet-raw")
+def debug_sheet_raw(source: str = "outlook", sheet: str = "OUTLOOK", nrows: int = 10):
+    """
+    Show the raw first N rows of a sheet BEFORE and AFTER header promotion.
+    Useful to diagnose which Excel row maps to which pandas row index.
+    """
+    try:
+        raw = sp.download_file(source)
+        import io, pandas as pd
+        buf = io.BytesIO(raw)
+        # Load raw (no header promotion)
+        raw_df = pd.read_excel(buf, sheet_name=sheet, header=None, nrows=nrows + 5)
+        raw_rows = raw_df.fillna("").values.tolist()
+
+        # Load with promotion
+        buf.seek(0)
+        sheets = dp.load_excel_bytes(raw, source)
+        promoted_df = sheets.get(sheet)
+        promoted_head = None
+        if promoted_df is not None:
+            promoted_head = {
+                "columns": list(promoted_df.columns)[:20],
+                "rows":    promoted_df.head(nrows).fillna("").values.tolist(),
+            }
+
+        return {
+            "source": source,
+            "sheet": sheet,
+            "raw_rows": raw_rows,          # exact Excel rows 1..nrows
+            "promoted": promoted_head,     # after _promote_header
+        }
+    except Exception as exc:
+        import traceback
+        return {"success": False, "error": str(exc), "traceback": traceback.format_exc()}
