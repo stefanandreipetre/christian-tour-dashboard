@@ -240,3 +240,22 @@ def debug_sheet_raw(sheet: str, nrows: int = 8):
         return dp.sheet_raw_rows(raw, sheet, nrows)
     except Exception as exc:
         return {"error": str(exc)}
+
+
+@app.get("/api/debug/b2b-daily-shape")
+def debug_b2b_daily():
+    """Return raw headers + first 5 rows of B2B Daily sheet for diagnosis."""
+    import openpyxl, io
+    raw = cache._raw
+    if raw is None:
+        return {"error": "cache not loaded yet"}
+    wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    if "B2B Daily" not in wb.sheetnames:
+        return {"error": "B2B Daily sheet not found", "sheets": wb.sheetnames}
+    ws = wb["B2B Daily"]
+    rows = []
+    for i, row in enumerate(ws.iter_rows(values_only=True)):
+        if i >= 8:
+            break
+        rows.append([str(v) if v is not None else None for v in row])
+    return {"rows": rows, "total_rows_sampled": len(rows)}
