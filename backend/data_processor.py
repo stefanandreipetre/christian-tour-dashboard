@@ -24,7 +24,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-K_EUR = 1_000.0
+K_EUR = 1.0
 
 MONTH_ABBR = {
     "ian": 1, "jan": 1, "january": 1, "ianuarie": 1,
