@@ -300,7 +300,8 @@ def _stream_b2b_daily(wb) -> List[Dict]:
                 pax_idx     = _header_col_idx(header, "pax", "pasageri", "persons")
                 rev_idx     = _header_col_idx(header, "valoare", "value", "revenue",
                                               "vanzari", "actual", "sales",
-                                              "incasat", "eur",
+                                              "incasat", "eur", "nett", "net",
+                                              "total", "realizat",
                                               exclude={pax_idx} if pax_idx is not None else None)
                 month_idx   = _header_col_idx(header, "luna", "month", "lună",
                                               "period", "data", "date")
