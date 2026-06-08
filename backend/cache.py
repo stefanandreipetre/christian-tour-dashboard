@@ -1,20 +1,20 @@
 """
-Simple in-memory data cache with timestamps.
-Keyed by source name ('b2b', 'b2c', 'outlook', 'target').
+In-memory cache — stores ONLY timeseries (slim dicts), never raw DataFrames.
+Raw sheets are parsed and immediately discarded to stay within 512 MB RAM.
 """
 
 import time
 import threading
 from typing import Dict, Any, Optional
 
-_lock = threading.Lock()
+_lock  = threading.Lock()
 _store: Dict[str, Dict] = {}
 
 
-def set_data(key: str, raw_sheets: Dict, timeseries: list) -> None:
+def set_data(key: str, _raw_sheets_ignored: Any, timeseries: list) -> None:
+    """Store timeseries for a source. Raw sheets are NOT stored."""
     with _lock:
         _store[key] = {
-            "sheets": raw_sheets,
             "timeseries": timeseries,
             "updated_at": time.time(),
         }

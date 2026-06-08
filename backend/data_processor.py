@@ -208,39 +208,52 @@ def _get_named_sheet(sheets: Dict[str, pd.DataFrame], *candidates: str) -> Tuple
     return None, None
 
 
+# Whitelist of sheets to load per source — ignore everything else to save RAM.
+# Render free tier is 512 MB; loading all sheets of large files causes OOM.
+SOURCE_SHEET_WHITELIST: Dict[str, list] = {
+    "b2b":     ["Data", "data", "DATE"],             # historical monthly data
+    "b2c":     [],                                    # not used directly (B2C comes from outlook)
+    "outlook": ["OUTLOOK", "LY", "P"],               # actuals / last-year / plan
+    "target":  ["Target 2026", "Target", "Targets"], # 2026 actuals + plan per agency
+}
+
+
 def load_excel_bytes(raw: bytes, source_key: str) -> Dict[str, pd.DataFrame]:
     """
-    Parse sheets from an Excel file.
-    For large files (b2c) only loads the relevant sheets to avoid OOM/timeout.
+    Parse only the needed sheets from an Excel file to stay within 512 MB RAM.
     Returns {sheet_name: DataFrame}.
     """
+    import gc
     buf = io.BytesIO(raw)
+    whitelist = SOURCE_SHEET_WHITELIST.get(source_key, [])
 
-    # Sheet whitelist filters — only load the one sheet we need for heavy files.
-    # "Etrip + tina" (46k rows) has Region, Month Name, Year, Price Gross, Pax — everything needed.
-    # Loading all 8 sheets risks OOM on Render free tier.
-    SHEET_FILTERS: Dict[str, Any] = {
-        "b2c": lambda n: (
-            "etrip + tina" in n.strip().lower()
-            and "(2)" not in n.strip().lower()
-        ),
-    }
-
-    filter_fn = SHEET_FILTERS.get(source_key)
     try:
-        if filter_fn:
-            xl = pd.ExcelFile(buf)
-            target_names = [s for s in xl.sheet_names if filter_fn(s)]
+        xl  = pd.ExcelFile(buf)
+        all_names = xl.sheet_names
+        logger.info("%s: file has %d sheets: %s", source_key, len(all_names), all_names[:15])
+
+        if whitelist:
+            # Case-insensitive match against whitelist
+            wl_lower = [w.lower() for w in whitelist]
+            target_names = [s for s in all_names if s.strip().lower() in wl_lower]
             if not target_names:
-                target_names = xl.sheet_names   # fallback: load all
-            logger.info("%s: selective load — %d sheets: %s", source_key, len(target_names), target_names[:10])
-            buf.seek(0)
-            raw_sheets = pd.read_excel(buf, sheet_name=target_names, header=None)
+                # fallback: first sheet only
+                target_names = all_names[:1]
+                logger.warning("%s: whitelist %s matched nothing — loading first sheet only", source_key, whitelist)
+            else:
+                logger.info("%s: loading %d whitelisted sheets: %s", source_key, len(target_names), target_names)
         else:
-            raw_sheets = pd.read_excel(buf, sheet_name=None, header=None)
+            # b2c: not needed, but load first sheet as placeholder
+            target_names = all_names[:1]
+
+        buf.seek(0)
+        raw_sheets = pd.read_excel(buf, sheet_name=target_names, header=None)
     except Exception as exc:
         logger.error("Failed to parse %s: %s", source_key, exc)
         return {}
+    finally:
+        del buf
+        gc.collect()
 
     result = {}
     for name, df in raw_sheets.items():
@@ -250,6 +263,11 @@ def load_excel_bytes(raw: bytes, source_key: str) -> Dict[str, pd.DataFrame]:
         df.columns = [str(c).strip() for c in df.columns]
         df = df.dropna(how="all").reset_index(drop=True)
         result[name] = df
+
+    del raw_sheets
+    gc.collect()
+    logger.info("%s: loaded %d sheets, sizes: %s", source_key,
+                len(result), {k: len(v) for k, v in result.items()})
     return result
 
 

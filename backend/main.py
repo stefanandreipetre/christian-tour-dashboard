@@ -38,68 +38,73 @@ BUILDERS = {
 
 
 def load_source(key: str) -> None:
-    """Download one Excel file from SharePoint, parse with the correct builder, store in cache."""
+    """
+    Download one Excel file, parse it, store ONLY timeseries in cache.
+    Raw DataFrames are discarded immediately after parsing to stay within 512 MB RAM.
+    """
+    import gc
     try:
         logger.info("Loading %s …", key)
         raw    = sp.download_file(key)
         sheets = dp.load_excel_bytes(raw, key)
-        build  = BUILDERS.get(key, dp.build_b2b_timeseries)
-        ts     = build(sheets)
-        cache.set_data(key, sheets, ts)
-        logger.info("Loaded %s: %d sheets, %d rows", key, len(sheets), len(ts))
+        del raw   # free download buffer immediately
+        gc.collect()
 
-        # Outlook file IS the authoritative B2C source.
-        # After loading it, build the proper B2C timeseries (OUTLOOK/LY/P sheets)
-        # and store it as "b2c" — overwriting any data from the Dashboard Performance file.
+        build = BUILDERS.get(key, dp.build_b2b_timeseries)
+        ts    = build(sheets)
+
+        # Outlook → also build authoritative B2C timeseries from OUTLOOK/LY/P sheets
         if key == "outlook":
             b2c_ts = dp.build_b2c_from_outlook_file(sheets)
             if b2c_ts:
-                cache.set_data("b2c", sheets, b2c_ts)
+                cache.set_data("b2c", None, b2c_ts)
                 logger.info("B2C populated from outlook file: %d records", len(b2c_ts))
             else:
-                logger.warning("B2C: build_b2c_from_outlook_file returned no records — OUTLOOK/LY/P sheets may be missing")
+                logger.warning("B2C: build_b2c_from_outlook_file returned no records")
+
+        # Target → also build B2B 2026 timeseries and merge with historical B2B
+        if key == "target":
+            b2b_2026 = dp.build_b2b_2026_from_target(sheets)
+            del sheets   # free target sheets now — large file
+            gc.collect()
+            sheets = {}  # don't use sheets below
+            _merge_b2b_2026(b2b_2026)
+            cache.set_data(key, None, ts)
+            logger.info("Loaded %s: %d rows", key, len(ts))
+            return
+
+        del sheets
+        gc.collect()
+
+        cache.set_data(key, None, ts)
+        logger.info("Loaded %s: %d rows", key, len(ts))
 
     except Exception as exc:
         logger.error("Error loading %s: %s", key, exc, exc_info=True)
 
 
 
-def _merge_b2b_with_target_2026() -> None:
-    """
-    After loading all sources, augment the B2B timeseries with per-agency 2026
-    records from the Target file (Target 2026 sheet has both Realizat + Target
-    per agency per month for 2026, while the B2B Monthly file only covers 2024-2025).
-    """
-    b2b_entry    = cache.get_data("b2b")
-    target_entry = cache.get_data("target")
-    if not b2b_entry or not target_entry:
-        logger.warning("B2B merge: b2b or target not loaded — skipping")
-        return
-
-    target_sheets = target_entry.get("sheets", {})
-    b2b_2026 = dp.build_b2b_2026_from_target(target_sheets)
+def _merge_b2b_2026(b2b_2026: list) -> None:
+    """Merge freshly-parsed 2026 B2B records into the cached historical timeseries."""
     if not b2b_2026:
-        logger.warning("B2B merge: no 2026 records extracted from target — keeping existing timeseries")
+        logger.warning("B2B merge: no 2026 records — keeping existing timeseries")
         return
-
-    # Keep historical records (2024-2025) from B2B Monthly file; replace any 2026 with Target data
+    b2b_entry = cache.get_data("b2b")
+    if not b2b_entry:
+        # B2B historical not loaded yet — store 2026-only for now
+        cache.set_data("b2b", None, b2b_2026)
+        logger.info("B2B merge: historical not loaded yet — stored %d 2026-only records", len(b2b_2026))
+        return
     historical = [r for r in b2b_entry["timeseries"] if r.get("year") != 2026]
     merged     = historical + b2b_2026
-    cache.set_data("b2b", b2b_entry["sheets"], merged)
-    logger.info(
-        "B2B merge complete: %d historical + %d 2026 = %d total records",
-        len(historical), len(b2b_2026), len(merged),
-    )
+    cache.set_data("b2b", None, merged)
+    logger.info("B2B merge: %d historical + %d 2026 = %d total", len(historical), len(b2b_2026), len(merged))
 
 
 def refresh_all() -> None:
-    for key in SOURCES:
+    # Load in order: b2b first (historical), then target (2026 + merge), then outlook (B2C)
+    for key in ["b2b", "target", "outlook", "b2c"]:
         load_source(key)
-    # Augment B2B timeseries with 2026 per-agency data from Target file
-    try:
-        _merge_b2b_with_target_2026()
-    except Exception as exc:
-        logger.error("B2B/Target merge failed: %s", exc, exc_info=True)
 
 
 @asynccontextmanager
@@ -170,15 +175,17 @@ def manual_refresh(background_tasks: BackgroundTasks):
 
 @app.get("/api/raw/{source}")
 def raw(source: str, sheet: Optional[str] = Query(None)):
+    """Raw sheet data is no longer cached (memory optimisation). Returns timeseries summary."""
     if source not in SOURCES:
         raise HTTPException(400, f"source must be one of {SOURCES}")
-    entry  = _require(source)
-    sheets = entry["sheets"]
-    if sheet:
-        if sheet not in sheets:
-            raise HTTPException(404, f"Sheet '{sheet}' not found. Available: {list(sheets.keys())}")
-        return dp.sheets_metadata({sheet: sheets[sheet]})
-    return dp.sheets_metadata(sheets)
+    entry = _require(source)
+    ts    = entry["timeseries"]
+    return {
+        "source": source,
+        "rows": len(ts),
+        "note": "Raw sheets are not cached. Use /api/debug/load to re-parse on demand.",
+        "sample": ts[:3],
+    }
 
 
 # ── B2B endpoints ─────────────────────────────────────────────────────────────
