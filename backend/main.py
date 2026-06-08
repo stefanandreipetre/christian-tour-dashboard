@@ -222,18 +222,29 @@ def b2b_branches(year: Optional[int] = Query(None), month: Optional[int] = Query
 @app.get("/api/b2b/vs-target")
 def b2b_vs_target(year: Optional[int] = Query(None), month: Optional[int] = Query(None)):
     b2b = _require("b2b")
-    tgt = _require("target")
 
-    actual         = dp.get_summary_stats(b2b["timeseries"], year=year, month=month)
-    target         = dp.get_summary_stats(tgt["timeseries"], year=year, month=month)
+    actual = dp.get_summary_stats(b2b["timeseries"], year=year, month=month)
+
+    # Build monthly chart — b2b timeseries already has plan merged from Target 2026
     actual_monthly = dp.get_monthly_chart(b2b["timeseries"], year=year)
-    target_monthly = dp.get_monthly_chart(tgt["timeseries"], year=year)
-
     combined = []
-    for a, t in zip(actual_monthly, target_monthly):
-        combined.append({**a, "target": t.get("plan") or a.get("plan") or t.get("revenue")})
+    for a in actual_monthly:
+        combined.append({**a, "target": a.get("plan")})
 
-    return {"actual": actual, "target_kpi": target, "monthly": combined}
+    # Supplement from separate target source if available
+    tgt_entry = cache.get_data("target")
+    if tgt_entry:
+        target_monthly = dp.get_monthly_chart(tgt_entry["timeseries"], year=year)
+        plan_by_month  = {r["month"]: r.get("plan") for r in target_monthly if r.get("plan")}
+        for row in combined:
+            if row.get("target") is None and row.get("month") in plan_by_month:
+                row["target"] = plan_by_month[row["month"]]
+
+    target_kpi = dp.get_summary_stats(
+        tgt_entry["timeseries"] if tgt_entry else b2b["timeseries"], year=year, month=month
+    )
+
+    return {"actual": actual, "target_kpi": target_kpi, "monthly": combined}
 
 
 # ── B2C endpoints ─────────────────────────────────────────────────────────────
