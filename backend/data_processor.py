@@ -860,144 +860,205 @@ def build_b2c_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
 
 def _parse_b2c_wide_sheet(sheet_name: str, df: pd.DataFrame, year: int) -> List[Dict]:
     """
-    Parse OUTLOOK or LY wide-format sheet into per-branch, per-month records.
-    Columns: [nan, Description, Jan, Feb, ..., Dec, nan, OUTLOOK, FORECAST, PLAN, ...]
-    Only short month-name columns (<=5 chars) are treated as monthly data.
-    Rows named like 'TOTAL ...' are skipped to avoid double-counting.
+    Parse OUTLOOK or LY wide-format sheet.
+    PRIMARY strategy: find the TOTAL/VANZARI row and use its monthly values.
+    This matches the expected structure where row 5 in Excel is the grand total
+    and columns C+ are Jan-Dec.
+    FALLBACK: if no total row found, sum all non-header rows.
     """
-    # Find month columns — only short col names (Jan/Feb/...) not OUTLOOK/FORECAST/PLAN
-    month_cols: Dict[int, str] = {}
-    for col in df.columns:
-        cs = str(col).strip()
-        m = _month_from_str(cs)
-        if m and m not in month_cols and len(cs) <= 5:
-            month_cols[m] = col
+    def _find_month_cols(frame: pd.DataFrame) -> Dict[int, str]:
+        cols: Dict[int, str] = {}
+        for col in frame.columns:
+            cs = str(col).strip()
+            m = _month_from_str(cs)
+            if m and m not in cols and len(cs) <= 5:
+                cols[m] = col
+        return cols
+
+    month_cols = _find_month_cols(df)
+
+    # If _promote_header picked the wrong row, month names may be in a data row.
+    # Scan every row looking for one that contains >=6 month names.
+    if len(month_cols) < 6:
+        logger.warning("B2C wide sheet '%s': only %d month cols in headers — scanning rows for header",
+                       sheet_name, len(month_cols))
+        for row_idx, row in df.iterrows():
+            candidate: Dict[int, str] = {}
+            for col_pos, val in enumerate(row):
+                cs = str(val).strip()
+                m = _month_from_str(cs)
+                if m and m not in candidate and len(cs) <= 5:
+                    candidate[m] = df.columns[col_pos]
+            if len(candidate) >= 6:
+                # Re-promote using this row as the header
+                new_header = [str(v).strip() for v in df.iloc[row_idx]]
+                df = df.iloc[row_idx + 1:].reset_index(drop=True)
+                df.columns = new_header
+                month_cols = _find_month_cols(df)
+                logger.info("B2C wide sheet '%s': re-promoted header from row %d, found %d month cols",
+                            sheet_name, row_idx, len(month_cols))
+                break
 
     if not month_cols:
         logger.warning("B2C wide sheet '%s': no month columns found (cols: %s)",
-                       sheet_name, list(df.columns)[:10])
+                       sheet_name, list(df.columns)[:15])
         return []
 
-    # Find description / branch name column
+    # Find description column (first object-type column)
     desc_col = None
     for col in df.columns:
         cs = str(col).strip().lower()
-        if cs in ("description", "revenue", "sucursala", "branch", "agentie", "descriere"):
+        if cs in ("description", "sucursala", "branch", "agentie", "descriere", "zona"):
             desc_col = col
             break
     if desc_col is None:
-        # fallback: first column whose values are mostly strings
         for col in df.columns:
             if df[col].dtype == object:
                 desc_col = col
                 break
-
     if desc_col is None:
-        logger.warning("B2C wide sheet '%s': no description column found", sheet_name)
-        return []
+        desc_col = df.columns[0]
 
-    SKIP_KW = ["total", "grand", "subtotal", "header"]
+    TOTAL_KW = ["total", "grand", "vanzari", "revenues"]
 
-    records = []
+    # PRIMARY: find the row whose description contains a "total" keyword
+    # and that has the most months with positive values (= the grand total row)
+    best_row = None
+    best_count = 0
+    for _, row in df.iterrows():
+        desc = str(row.get(desc_col, "")).strip().lower()
+        if not desc or desc in ("nan", "none"):
+            continue
+        if any(kw in desc for kw in TOTAL_KW):
+            vals = [_parse_num(row.get(c)) for c in month_cols.values()]
+            count = sum(1 for v in vals if v and v > 0)
+            if count > best_count:
+                best_count = count
+                best_row = row
+                logger.info("B2C wide '%s': candidate total row '%s' (%d months)", sheet_name, desc, count)
+
+    if best_row is not None:
+        records = []
+        for m, col in month_cols.items():
+            v = _parse_num(best_row.get(col))
+            if v and v > 0:
+                records.append({
+                    "sheet": sheet_name, "month": m, "year": year,
+                    "revenue": round(v, 2), "bookings": None, "plan": None,
+                    "ly": None, "agency": None, "zona": None, "date": None,
+                })
+        logger.info("B2C wide sheet '%s' year=%d: %d months from TOTAL row", sheet_name, year, len(records))
+        return records
+
+    # FALLBACK: no total row found — sum all non-empty rows
+    logger.warning("B2C wide sheet '%s': no TOTAL row found, summing all rows", sheet_name)
+    monthly_sums: Dict[int, float] = {}
     for _, row in df.iterrows():
         desc = str(row.get(desc_col, "")).strip()
         if not desc or desc.lower() in ("nan", "none", ""):
             continue
-        if any(kw in desc.lower() for kw in SKIP_KW):
-            continue
-
         for m, col in month_cols.items():
             v = _parse_num(row.get(col))
-            if v is None or v == 0:
-                continue
+            if v and v > 0:
+                monthly_sums[m] = monthly_sums.get(m, 0.0) + v
+
+    records = []
+    for m, total in sorted(monthly_sums.items()):
+        if total > 0:
             records.append({
-                "sheet":    sheet_name,
-                "month":    m,
-                "year":     year,
-                "revenue":  round(v, 2),
-                "bookings": None,
-                "plan":     None,
-                "ly":       None,
-                "agency":   None,
-                "zona":     desc,
-                "date":     None,
+                "sheet": sheet_name, "month": m, "year": year,
+                "revenue": round(total, 2), "bookings": None, "plan": None,
+                "ly": None, "agency": None, "zona": None, "date": None,
             })
-
-    branches = len({r["zona"] for r in records})
-    logger.info("B2C wide sheet '%s' year=%d: %d records across %d branches",
-                sheet_name, year, len(records), branches)
-
-    # If no branch-level rows found, fall back to using the TOTAL REVENUES row
-    # (spreadsheet may only have summary rows, no per-branch detail)
-    if not records:
-        logger.warning("B2C wide sheet '%s': no branch rows — falling back to TOTAL row", sheet_name)
-        for _, row in df.iterrows():
-            desc = str(row.get(desc_col, "")).strip()
-            desc_up = desc.upper()
-            if "TOTAL" in desc_up and ("REVENUE" in desc_up or "VANZARI" in desc_up):
-                for m, col in month_cols.items():
-                    v = _parse_num(row.get(col))
-                    if v and v > 0:
-                        records.append({
-                            "sheet": sheet_name, "month": m, "year": year,
-                            "revenue": round(v, 2), "bookings": None, "plan": None,
-                            "ly": None, "agency": None, "zona": None, "date": None,
-                        })
-                break   # only use first TOTAL REVENUES row
-
+    logger.info("B2C wide sheet '%s' year=%d: %d months (summed fallback)", sheet_name, year, len(records))
     return records
 
 
 def _parse_b2c_plan_sheet(sheet_name: str, df: pd.DataFrame, year: int) -> List[Dict]:
     """
-    Parse the P (plan) sheet into one record per month with plan set.
-    Looks for a 'TOTAL REVENUES' row first; falls back to summing all positive values.
+    Parse the P (plan) sheet — same TOTAL-row-first logic as _parse_b2c_wide_sheet
+    but writes to plan field instead of revenue.
     """
-    month_cols: Dict[int, str] = {}
-    for col in df.columns:
-        cs = str(col).strip()
-        m = _month_from_str(cs)
-        if m and m not in month_cols and len(cs) <= 5:
-            month_cols[m] = col
+    def _find_month_cols(frame: pd.DataFrame) -> Dict[int, str]:
+        cols: Dict[int, str] = {}
+        for col in frame.columns:
+            cs = str(col).strip()
+            m = _month_from_str(cs)
+            if m and m not in cols and len(cs) <= 5:
+                cols[m] = col
+        return cols
+
+    month_cols = _find_month_cols(df)
+
+    if len(month_cols) < 6:
+        for row_idx, row in df.iterrows():
+            candidate: Dict[int, str] = {}
+            for col_pos, val in enumerate(row):
+                cs = str(val).strip()
+                m = _month_from_str(cs)
+                if m and m not in candidate and len(cs) <= 5:
+                    candidate[m] = df.columns[col_pos]
+            if len(candidate) >= 6:
+                new_header = [str(v).strip() for v in df.iloc[row_idx]]
+                df = df.iloc[row_idx + 1:].reset_index(drop=True)
+                df.columns = new_header
+                month_cols = _find_month_cols(df)
+                break
 
     if not month_cols:
         return []
 
-    # Try to find TOTAL REVENUES row
     desc_col = None
     for col in df.columns:
         cs = str(col).strip().lower()
-        if "descri" in cs or cs in ("revenue", "nan", "none"):
+        if cs in ("description", "sucursala", "branch", "agentie", "descriere", "zona"):
             desc_col = col
             break
-
-    total_row = None
-    if desc_col is not None:
-        for _, row in df.iterrows():
-            desc = str(row.get(desc_col, "")).strip().upper()
-            if "TOTAL" in desc and ("REVENUE" in desc or "VANZARI" in desc):
-                total_row = row
+    if desc_col is None:
+        for col in df.columns:
+            if df[col].dtype == object:
+                desc_col = col
                 break
+    if desc_col is None:
+        desc_col = df.columns[0]
+
+    TOTAL_KW = ["total", "grand", "vanzari", "revenues"]
+
+    best_row = None
+    best_count = 0
+    for _, row in df.iterrows():
+        desc = str(row.get(desc_col, "")).strip().lower()
+        if not desc or desc in ("nan", "none"):
+            continue
+        if any(kw in desc for kw in TOTAL_KW):
+            vals = [_parse_num(row.get(c)) for c in month_cols.values()]
+            count = sum(1 for v in vals if v and v > 0)
+            if count > best_count:
+                best_count = count
+                best_row = row
 
     records = []
-    for m, col in month_cols.items():
-        if total_row is not None:
-            v = _parse_num(total_row.get(col))
-        else:
+    if best_row is not None:
+        for m, col in month_cols.items():
+            v = _parse_num(best_row.get(col))
+            if v and v > 0:
+                records.append({
+                    "sheet": sheet_name, "month": m, "year": year,
+                    "revenue": None, "bookings": None,
+                    "plan": round(v, 2),
+                    "ly": None, "agency": None, "zona": None, "date": None,
+                })
+    else:
+        # fallback: sum all positive values per month
+        for m, col in month_cols.items():
             v = _col_sum(df, col)
-        if v and v > 0:
-            records.append({
-                "sheet":    sheet_name,
-                "month":    m,
-                "year":     year,
-                "revenue":  None,
-                "bookings": None,
-                "plan":     round(v, 2),
-                "ly":       None,
-                "agency":   None,
-                "zona":     None,
-                "date":     None,
-            })
+            if v and v > 0:
+                records.append({
+                    "sheet": sheet_name, "month": m, "year": year,
+                    "revenue": None, "bookings": None,
+                    "plan": round(v, 2),
+                    "ly": None, "agency": None, "zona": None, "date": None,
+                })
 
     logger.info("B2C plan sheet '%s' year=%d: %d monthly plan records", sheet_name, year, len(records))
     return records
