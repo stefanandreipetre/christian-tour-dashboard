@@ -1067,13 +1067,15 @@ def _parse_b2c_plan_sheet(sheet_name: str, df: pd.DataFrame, year: int) -> List[
 def build_b2c_from_outlook_file(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     """
     Build complete B2C timeseries from 'Outlook CHR Sales Site separat' file:
-      OUTLOOK sheet  → per-branch monthly actuals  (current year, revenue field)
-      LY sheet       → per-branch monthly actuals  (prev year,    revenue field)
-      P sheet        → monthly plan totals          (current year, plan field, zona=None)
+      OUTLOOK sheet  → monthly actuals  (current year, revenue field)
+      LY sheet       → monthly actuals  (prev year,    revenue field)
+      P sheet        → monthly plan     (current year, plan field, zona=None)
 
-    Storing LY as year-1 records lets get_monthly_chart(compare_year=year-1) pick them up,
-    and get_summary_stats auto-computes vs_ly_pct from those same records.
+    IMPORTANT: values in this file are already in EUR.
+    The frontend always divides by EUR_RATE=5 (assumes RON), so we multiply
+    by EUR_RATE here to convert EUR→RON before storing, so the ÷5 cancels out.
     """
+    EUR_RATE = 5.0
     current_year = date.today().year
     records: List[Dict] = []
 
@@ -1095,7 +1097,16 @@ def build_b2c_from_outlook_file(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     else:
         logger.warning("B2C: P sheet not found")
 
-    logger.info("B2C from outlook file: %d total records", len(records))
+    # Multiply all monetary values by EUR_RATE so frontend ÷5 yields correct EUR
+    for r in records:
+        if r.get("revenue") is not None:
+            r["revenue"] = round(r["revenue"] * EUR_RATE, 2)
+        if r.get("plan") is not None:
+            r["plan"] = round(r["plan"] * EUR_RATE, 2)
+        if r.get("ly") is not None:
+            r["ly"] = round(r["ly"] * EUR_RATE, 2)
+
+    logger.info("B2C from outlook file: %d total records (EUR×%s stored as RON)", len(records), EUR_RATE)
     return records
 
 
