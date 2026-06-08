@@ -161,12 +161,23 @@ def b2c_summary(year: Optional[int] = None, month: Optional[int] = None):
 
 @app.get("/api/b2c/branches")
 def b2c_branches(year: Optional[int] = None):
-    seen = {}
+    agg: dict = {}
     for r in _filter(_ts("b2c"), year):
         b = r.get("branch")
-        if b and b not in seen:
-            seen[b] = r.get("region")
-    return [{"branch": k, "region": v} for k, v in sorted(seen.items())]
+        if not b:
+            continue
+        if b not in agg:
+            agg[b] = {"branch": b, "region": r.get("region", ""), "revenue": 0.0, "plan": 0.0, "ly": 0.0, "pax": 0}
+        for f in ("revenue", "plan", "ly"):
+            if r.get(f) is not None:
+                agg[b][f] = round(agg[b][f] + r[f], 2)
+        if r.get("pax") is not None:
+            agg[b]["pax"] += int(r["pax"])
+    result = sorted(agg.values(), key=lambda x: x["revenue"], reverse=True)
+    for r in result:
+        r["bookings"] = r["pax"]
+        r["vs_plan_pct"] = round((r["revenue"] / r["plan"] - 1) * 100, 1) if r.get("plan") else None
+    return result
 
 
 # B2B endpoints
@@ -194,7 +205,20 @@ def b2b_summary(year: Optional[int] = None, month: Optional[int] = None):
 
 @app.get("/api/b2b/partners")
 def b2b_partners(year: Optional[int] = None):
-    return sorted({r["agency"] for r in _filter(_ts("b2b"), year) if r.get("agency")})
+    agg: dict = {}
+    for r in _filter(_ts("b2b"), year):
+        a = r.get("agency")
+        if not a:
+            continue
+        if a not in agg:
+            agg[a] = {"agency": a, "pax": 0}
+        pax_val = int(r.get("pax") or r.get("revenue") or 0)
+        agg[a]["pax"] += pax_val
+    result = sorted(agg.values(), key=lambda x: x["pax"], reverse=True)
+    for r in result:
+        r["bookings"] = r["pax"]
+        r["revenue"] = r["pax"]  # PAX as proxy revenue for display compatibility
+    return result
 
 
 # Debug endpoints

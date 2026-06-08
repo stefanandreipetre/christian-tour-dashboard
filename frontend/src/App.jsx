@@ -179,23 +179,34 @@ export default function App() {
     ? Math.max(status.b2c?.updated_at || 0, status.b2b?.updated_at || 0)
     : null
 
-  // Chart data from monthly-aggregated summaries (not raw per-branch records)
-  const b2cChartRows = toChartRows(b2cSummaryData)
-  // B2B Daily has PAX not EUR actuals — zero out revenue, show plan line only
-  const b2bChartRows = toChartRows(b2bSummaryData).map(r => ({ ...r, revenue: null }))
-  const b2cChartData = period === 'recent'
-    ? b2cChartRows.filter(r => (r.revenue || 0) > 0 || (r.plan || 0) > 0).slice(-8)
-    : b2cChartRows
-  const b2bChartData = period === 'recent'
-    ? b2bChartRows.filter(r => (r.plan || 0) > 0).slice(-8)
-    : b2bChartRows
+  // Combined totals (B2B EUR actuals unavailable — only PAX from B2B Daily)
+  const combinedPlan      = (b2cSummary?.plan    || 0) + (b2bSummary?.plan || 0)
+  const combinedRevenue   = (b2cSummary?.revenue || 0)  // B2B has no EUR actuals
+  const combinedPAX       = (b2cSummary?.pax     || 0) + (b2bSummary?.pax  || 0)
+  const combinedVsPlanPct = combinedPlan ? +((combinedRevenue / combinedPlan) * 100).toFixed(1) : null
 
-  const b2bChartTitle = period === 'recent'
-    ? 'B2B — Ultimele 8 Luni'
-    : `B2B — Evoluție Lunară ${year} vs ${compareYear}`
-  const b2cChartTitle = period === 'recent'
+  // Chart rows from monthly-aggregated summaries (12 rows, not per-branch records)
+  const b2cChartRows = toChartRows(b2cSummaryData)
+  const b2bChartRows = toChartRows(b2bSummaryData).map(r => ({ ...r, revenue: null }))
+  // Combined chart: B2C actuals + LY, plan = B2C + B2B merged by month
+  const combinedChartRows = b2cChartRows.map(r => {
+    const b2b = b2bChartRows.find(x => x.month === r.month) || {}
+    return { ...r, plan: (r.plan || 0) + (b2b.plan || 0) }
+  })
+  const activeSlice = rows => rows.filter(r => (r.revenue || 0) > 0 || (r.plan || 0) > 0).slice(-8)
+  const b2cChartData     = period === 'recent' ? activeSlice(b2cChartRows)      : b2cChartRows
+  const b2bChartData     = period === 'recent' ? activeSlice(b2bChartRows)      : b2bChartRows
+  const overviewChartData = period === 'recent' ? activeSlice(combinedChartRows) : combinedChartRows
+
+  const overviewChartTitle = period === 'recent'
+    ? `Total B2B+B2C — Ultimele 8 Luni`
+    : `Total B2B+B2C — Plan vs Actuale B2C (${year})`
+  const b2cTabChartTitle = period === 'recent'
     ? 'B2C / Site — Ultimele 8 Luni'
-    : `B2C / Site — Evoluție Lunară ${year} vs ${compareYear}`
+    : `B2C / Site — Actuale vs An Anterior vs Plan (${year})`
+  const b2bTabChartTitle = period === 'recent'
+    ? 'B2B — Plan Lunar (Actuale EUR indisponibile)'
+    : `B2B — Plan Lunar ${year} (Actuale EUR indisponibile)`
 
   return (
     <div className="min-h-screen bg-ct-gray">
@@ -238,17 +249,17 @@ export default function App() {
         {tab === 'overview' && (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <KPICard title="Plan B2B" value={b2bSummary?.plan}
-                deltaLabel="Target anual"
-                icon="💼" color="orange" loading={loading} />
-              <KPICard title="Vânzări B2C / Site" value={b2cSummary?.revenue}
+              <KPICard title="Plan Total (B2B+B2C)" value={combinedPlan}
+                deltaLabel="Target anual cumulat"
+                icon="📋" color="navy" loading={loading} />
+              <KPICard title="Actual YTD (B2C)" value={combinedRevenue}
                 delta={b2cSummary?.vs_ly_pct} deltaLabel={`vs ${compareYear}`}
-                icon="🌐" color="navy" loading={loading} />
-              <KPICard title="PAX B2B" value={b2bSummary?.bookings}
+                icon="🌐" color="orange" loading={loading} />
+              <KPICard title="PAX Total (B2B+B2C)" value={combinedPAX}
                 valueType="int" icon="🎫" color="green" loading={loading} />
-              <KPICard title="% Plan B2B" value={null}
+              <KPICard title="% Realizare Plan" value={combinedVsPlanPct}
                 valueType="pct"
-                deltaLabel="Date EUR B2B indisponibile"
+                deltaLabel={combinedPlan ? `${fmtEur(combinedRevenue)} / ${fmtEur(combinedPlan)}` : 'Date B2B indisponibile'}
                 icon="🎯" color="purple" loading={loading} />
             </div>
 
@@ -273,24 +284,17 @@ export default function App() {
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
               <div className="xl:col-span-2">
-                <RevenueChart data={b2bChartData} title={b2bChartTitle}
-                  showLY={period === 'monthly'} showPlan={period === 'monthly'} />
-              </div>
-              <ChannelCompare b2bRevenue={null} b2cRevenue={b2cSummary?.revenue} />
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-              <div className="xl:col-span-2">
-                <RevenueChart data={b2cChartData} title={b2cChartTitle}
-                  showLY={period === 'monthly'} showPlan={false} />
+                <RevenueChart data={overviewChartData} title={overviewChartTitle}
+                  showLY={period === 'monthly'} showPlan />
               </div>
               <div className="grid grid-cols-1 gap-4">
-                <GaugeCard title="Plan B2B" actual={null} target={b2bSummary?.plan} color="#E8440A" />
+                <GaugeCard title="Plan Total" actual={combinedRevenue} target={combinedPlan} color="#E8440A" />
                 <GaugeCard title="Plan B2C" actual={b2cSummary?.revenue} target={b2cSummary?.plan} color="#1A2B5F" />
               </div>
             </div>
 
             <AgencyTable data={agencies} loading={loading} />
+          </>
           </>
         )}
 
@@ -331,9 +335,9 @@ export default function App() {
               <YearlyChart b2bData={b2bYearly} b2cData={[]} loading={loading} />
             ) : (
               <RevenueChart
-                data={period === 'recent' ? b2bRecent : (b2bVsTarget?.monthly || b2bMonthly)}
-                title={period === 'recent' ? 'B2B — Ultimele 8 Luni' : `B2B — Actual vs Plan vs An Anterior (${year})`}
-                showLY={period === 'monthly'} showPlan={period === 'monthly'} showTarget={period === 'monthly'}
+                data={b2bChartData}
+                title={b2bTabChartTitle}
+                showLY={false} showPlan
                 height={360}
               />
             )}
@@ -402,9 +406,9 @@ export default function App() {
             )}
             {(period === 'recent' || period === 'monthly') && (
               <RevenueChart
-                data={period === 'recent' ? b2cRecent : b2cMonthly}
-                title={period === 'recent' ? 'B2C / Site — Ultimele 8 Luni' : `B2C / Site — Evoluție Lunară ${year} vs ${compareYear}`}
-                showLY={period === 'monthly'} showPlan={period === 'monthly'}
+                data={b2cChartData}
+                title={b2cTabChartTitle}
+                showLY showPlan
                 height={360}
               />
             )}
@@ -424,27 +428,49 @@ export default function App() {
         {tab === 'branches' && (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <KPICard title="Sucursale B2B Active" value={b2bBranches.length}
-                valueType="int" icon="🏢" color="orange" loading={loading} />
+              <KPICard title="Parteneri B2B Activi" value={agencies.length}
+                valueType="int" icon="🤝" color="orange" loading={loading} />
               <KPICard title="Sucursale B2C Active" value={b2cBranches.length}
                 valueType="int" icon="🏪" color="navy" loading={loading} />
-              <KPICard title="Top B2B Sucursală"
-                value={b2bBranches[0]?.revenue ?? null}
-                deltaLabel={b2bBranches[0]?.branch}
+              <KPICard title="Top Partener B2B"
+                value={agencies[0]?.pax ?? null}
+                valueType="int"
+                deltaLabel={agencies[0]?.agency}
                 icon="🥇" color="green" loading={loading} />
-              <KPICard title="Top B2C Sucursală"
+              <KPICard title="Top Sucursală B2C"
                 value={b2cBranches[0]?.revenue ?? null}
                 deltaLabel={b2cBranches[0]?.branch}
                 icon="🥇" color="purple" loading={loading} />
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <BranchTable
-                data={b2bBranches}
-                loading={loading}
-                color="#E8440A"
-                title="B2B — Vânzări per Zonă / Sucursală"
-              />
+              <div className="card">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-gray-800">B2B — Top Parteneri (PAX)</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100 text-left">
+                        <th className="pb-2 font-semibold text-gray-500 text-xs">#</th>
+                        <th className="pb-2 font-semibold text-gray-500 text-xs">Partener / Agenție</th>
+                        <th className="pb-2 font-semibold text-gray-500 text-xs text-right">PAX</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {agencies.slice(0, 30).map((row, i) => (
+                        <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                          <td className="py-2 pr-3 text-gray-400 text-xs">{i + 1}</td>
+                          <td className="py-2 font-medium text-gray-800">{row.agency}</td>
+                          <td className="py-2 text-right font-semibold text-gray-900">
+                            {row.pax ? row.pax.toLocaleString('en') : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
               <BranchTable
                 data={b2cBranches}
                 loading={loading}
