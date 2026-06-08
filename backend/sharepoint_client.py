@@ -1,15 +1,15 @@
 """
 SharePoint client — downloads Excel files via public sharing links.
-No authentication required if the links are shared as "Anyone with the link".
+Handles SharePoint's multi-step redirect / auth-wall patterns.
 """
 
 import os
+import re
 import logging
 import requests
 
 logger = logging.getLogger(__name__)
 
-# Public sharing links (set these in Render environment variables)
 FILE_URLS = {
     "b2b": os.getenv(
         "FILE_B2B_URL",
@@ -30,35 +30,121 @@ FILE_URLS = {
 }
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument"
+        ".spreadsheetml.sheet,*/*;q=0.8"
+    ),
 }
+
+EXCEL_MAGIC = (
+    b"PK\x03\x04",           # xlsx/xlsm (zip-based)
+    b"\xd0\xcf\x11\xe0",     # xls (OLE2)
+)
+
+
+def _is_excel(data: bytes) -> bool:
+    return any(data[:4] == m for m in EXCEL_MAGIC)
+
+
+def _sharing_link_to_download(url: str) -> list[str]:
+    """
+    Build a prioritised list of download URL candidates from a SharePoint sharing link.
+    SharePoint /:x:/g/... links support several download patterns; try them in order.
+    """
+    candidates = []
+
+    # 1. Direct download=1 appended to sharing link
+    sep = "&" if "?" in url else "?"
+    candidates.append(url + sep + "download=1")
+
+    # 2. Replace /r/ or /:x:/g/ path with /_layouts/15/download.aspx?UniqueId=
+    #    Extract the encoded UniqueId from the URL path segment after the last "/"
+    uid_match = re.search(r"/([A-Za-z0-9_\-]{20,})\?", url)
+    if uid_match:
+        uid = uid_match.group(1)
+        base = re.match(r"(https://[^/]+)", url)
+        if base:
+            candidates.append(
+                f"{base.group(1)}/_layouts/15/download.aspx?UniqueId={uid}&e="
+                + (re.search(r"\?e=(\w+)", url) or type("", (), {"group": lambda s, n: ""})()).group(1)
+            )
+
+    # 3. Append &action=default&mobileredirect=true (sometimes needed for auth flow)
+    candidates.append(url + sep + "action=default&mobileredirect=true")
+
+    return candidates
 
 
 class SharePointClient:
 
     def download_file(self, file_key: str) -> bytes:
-        """Download a file via its public sharing link."""
         url = FILE_URLS.get(file_key)
         if not url:
             raise ValueError(f"Unknown file key: {file_key}")
 
-        # Append &download=1 to trigger direct file download
-        download_url = url + ("&" if "?" in url else "?") + "download=1"
-
         session = requests.Session()
         session.headers.update(HEADERS)
 
-        try:
-            resp = session.get(download_url, allow_redirects=True, timeout=30)
-            resp.raise_for_status()
-        except requests.RequestException as exc:
-            raise RuntimeError(
-                f"Failed to download '{file_key}' from SharePoint: {exc}"
-            ) from exc
+        candidates = _sharing_link_to_download(url)
+        last_error = None
+        last_content_type = ""
+        last_size = 0
 
-        content = resp.content
-        logger.info("Downloaded %s (%d bytes)", file_key, len(content))
-        return content
+        for attempt_url in candidates:
+            try:
+                logger.info("SP download '%s' attempt: %s", file_key, attempt_url[:80])
+                resp = session.get(attempt_url, allow_redirects=True, timeout=45)
+
+                ct = resp.headers.get("content-type", "")
+                size = len(resp.content)
+                last_content_type = ct
+                last_size = size
+                logger.info("  → HTTP %d  ct=%s  size=%d", resp.status_code, ct, size)
+
+                if resp.status_code != 200:
+                    last_error = f"HTTP {resp.status_code}"
+                    continue
+
+                if _is_excel(resp.content):
+                    logger.info("SP '%s': Excel magic bytes confirmed (%d bytes)", file_key, size)
+                    return resp.content
+
+                if "html" in ct.lower():
+                    # Got a login/redirect page — log first 300 chars for diagnosis
+                    logger.warning(
+                        "SP '%s': got HTML instead of file (ct=%s, size=%d). "
+                        "First 300 chars: %s",
+                        file_key, ct, size, resp.text[:300].replace("\n", " ")
+                    )
+                    last_error = f"HTML response (not a file): {resp.text[:120]}"
+                    continue
+
+                # No magic bytes but not HTML — may be a valid variant (csv, etc.)
+                if size > 5_000:
+                    logger.warning(
+                        "SP '%s': no Excel magic but size=%d, ct=%s — trying anyway",
+                        file_key, size, ct
+                    )
+                    return resp.content
+
+                last_error = f"Response too small or unrecognised format (size={size}, ct={ct})"
+
+            except requests.RequestException as exc:
+                last_error = str(exc)
+                logger.warning("SP '%s' attempt failed: %s", file_key, exc)
+                continue
+
+        raise RuntimeError(
+            f"All download attempts failed for '{file_key}'. "
+            f"Last error: {last_error}. Last ct={last_content_type}, size={last_size}. "
+            "Check that the SharePoint sharing link is still valid ('Anyone with the link')."
+        )
 
     def list_files(self) -> dict:
         return FILE_URLS.copy()
