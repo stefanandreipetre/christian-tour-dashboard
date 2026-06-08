@@ -424,3 +424,76 @@ def debug_sheet_raw(source: str = "outlook", sheet: str = "OUTLOOK", nrows: int 
     except Exception as exc:
         import traceback
         return {"success": False, "error": str(exc), "traceback": traceback.format_exc()}
+
+
+@app.get("/api/debug/b2b-structure")
+def debug_b2b_structure():
+    """
+    Show exact structure of both B2B files:
+    - Target 2026 sheet: columns + rows 1458-1465 (around row 1462 total row)
+    - B2B Monthly Data sheet: columns + first 5 rows
+    """
+    import io, pandas as pd
+    result = {}
+
+    # --- Target B2B 2026 file ---
+    try:
+        raw = sp.download_file("target")
+        buf = io.BytesIO(raw)
+        xl  = pd.ExcelFile(buf)
+        result["target_sheets"] = xl.sheet_names
+
+        # Find the sheet
+        sname = next((s for s in xl.sheet_names if "target" in s.lower() or "2026" in s.lower()), xl.sheet_names[0])
+        buf.seek(0)
+        df = pd.read_excel(buf, sheet_name=sname, header=None)
+        result["target_sheet_used"]  = sname
+        result["target_total_rows"]  = len(df)
+        result["target_total_cols"]  = len(df.columns)
+
+        # First 3 rows (headers) — show all columns
+        result["target_header_rows"] = df.head(3).fillna("").values.tolist()
+
+        # Rows around 1462 (0-indexed: 1461)
+        lo, hi = max(0, 1458), min(len(df), 1466)
+        result["target_rows_1458_1465"] = {
+            "row_indices": list(range(lo, hi)),
+            "rows": df.iloc[lo:hi].fillna("").values.tolist()
+        }
+
+        # Column letters for reference (A=0, B=1 ...)
+        import string
+        def col_letter(n):
+            s = ""
+            while True:
+                s = chr(ord('A') + n % 26) + s
+                n = n // 26 - 1
+                if n < 0: break
+            return s
+        result["target_col_letters"] = [col_letter(i) for i in range(len(df.columns))]
+
+    except Exception as exc:
+        import traceback
+        result["target_error"] = str(exc)
+        result["target_trace"] = traceback.format_exc()
+
+    # --- B2B Monthly 2024-2025 file ---
+    try:
+        raw2 = sp.download_file("b2b")
+        buf2 = io.BytesIO(raw2)
+        xl2  = pd.ExcelFile(buf2)
+        result["b2b_sheets"] = xl2.sheet_names
+
+        sname2 = next((s for s in xl2.sheet_names if "data" in s.lower()), xl2.sheet_names[0])
+        buf2.seek(0)
+        df2 = pd.read_excel(buf2, sheet_name=sname2, header=None, nrows=6)
+        result["b2b_sheet_used"]   = sname2
+        result["b2b_header_rows"]  = df2.fillna("").values.tolist()
+        result["b2b_col_count"]    = len(df2.columns)
+
+    except Exception as exc:
+        import traceback
+        result["b2b_error"] = str(exc)
+        result["b2b_trace"] = traceback.format_exc()
+
+    return result
