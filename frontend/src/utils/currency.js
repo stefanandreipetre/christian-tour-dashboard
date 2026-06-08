@@ -1,24 +1,16 @@
-// All backend values are in RON. Display in EUR throughout the dashboard.
-export const EUR_RATE = 5.0   // 1 EUR ≈ 5 RON (adjust here if rate changes)
+// Backend values are already in EUR — no conversion needed.
 
-export function toEur(ron) {
-  if (ron == null || Number.isNaN(ron)) return null
-  return ron / EUR_RATE
-}
-
-/** Compact axis label: "1.2M", "456K", "123" — no symbol */
-export function fmtEurAxis(ron) {
-  if (ron == null && ron !== 0) return ''
-  const v = toEur(ron)
+export function fmtEurAxis(eur) {
+  if (eur == null) return ''
+  const v = Number(eur)
   if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
   if (Math.abs(v) >= 1_000)     return `${(v / 1_000).toFixed(0)}K`
   return Math.round(v)
 }
 
-/** Full tooltip value: "€1.23M", "€456K", "€1,234" */
-export function fmtEur(ron, compact = true) {
-  if (ron == null || Number.isNaN(Number(ron))) return '—'
-  const v = toEur(ron)
+export function fmtEur(eur, compact = true) {
+  if (eur == null || Number.isNaN(Number(eur))) return '—'
+  const v = Number(eur)
   if (compact) {
     if (Math.abs(v) >= 1_000_000) return `€${(v / 1_000_000).toFixed(2)}M`
     if (Math.abs(v) >= 1_000)     return `€${(v / 1_000).toFixed(1)}K`
@@ -26,3 +18,7 @@ export function fmtEur(ron, compact = true) {
   }
   return `€${Math.round(v).toLocaleString('en')}`
 }
+
+// Kept for any legacy callers; no-op since values are already EUR
+export const EUR_RATE = 1.0
+export function toEur(v) { return v }
