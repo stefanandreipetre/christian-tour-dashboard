@@ -200,7 +200,7 @@ export default function App() {
 
   const overviewChartTitle = period === 'recent'
     ? `Total B2B+B2C — Ultimele 8 Luni`
-    : `Total B2B+B2C — Plan vs Actuale B2C (${year})`
+    : `Total B2B+B2C — Plan Combinat vs Actuale (${year})`
   const b2cTabChartTitle = period === 'recent'
     ? 'B2C / Site — Ultimele 8 Luni'
     : `B2C / Site — Actuale vs An Anterior vs Plan (${year})`
@@ -285,7 +285,11 @@ export default function App() {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
               <div className="xl:col-span-2">
                 <RevenueChart data={overviewChartData} title={overviewChartTitle}
-                  showLY={period === 'monthly'} showPlan />
+                  showLY={period === 'monthly'} showPlan
+                  revenueLabel="Actuale B2C"
+                  lyLabel="An anterior B2C"
+                  note="Plan = B2B+B2C combinat | Actuale si An anterior = doar B2C (date EUR B2B indisponibile in sursa)"
+                />
               </div>
               <div className="grid grid-cols-1 gap-4">
                 <GaugeCard title="Plan Total" actual={combinedRevenue} target={combinedPlan} color="#E8440A" />

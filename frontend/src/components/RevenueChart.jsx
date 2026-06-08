@@ -35,14 +35,15 @@ const CustomTooltip = ({ active, payload, label }) => {
   )
 }
 
-export default function RevenueChart({ data = [], title, showLY = true, showPlan = true, showTarget = false, height = 320 }) {
+export default function RevenueChart({ data = [], title, note, revenueLabel, lyLabel, showLY = true, showPlan = true, showTarget = false, height = 320 }) {
   const hasLY = showLY && data.some(d => d.revenueLY != null)
   const hasPlan = showPlan && data.some(d => d.plan != null)
   const hasTarget = showTarget && data.some(d => d.target != null)
 
   return (
     <div className="card">
-      <h3 className="font-semibold text-gray-800 mb-4">{title}</h3>
+      <h3 className="font-semibold text-gray-800 mb-1">{title}</h3>
+      {note && <p className="text-xs text-gray-400 italic mb-3">{note}</p>}
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <defs>
@@ -61,10 +62,10 @@ export default function RevenueChart({ data = [], title, showLY = true, showPlan
           />
 
           {hasLY && (
-            <Bar dataKey="revenueLY" name="An anterior" fill={COLORS.revenueLY} radius={[3, 3, 0, 0]} maxBarSize={28} opacity={0.7} />
+            <Bar dataKey="revenueLY" name={lyLabel || "An anterior"} fill={COLORS.revenueLY} radius={[3, 3, 0, 0]} maxBarSize={28} opacity={0.7} />
           )}
 
-          <Bar dataKey="revenue" name="Vânzări actuale" fill={COLORS.revenue} radius={[4, 4, 0, 0]} maxBarSize={32} />
+          <Bar dataKey="revenue" name={revenueLabel || "Vânzări actuale"} fill={COLORS.revenue} radius={[4, 4, 0, 0]} maxBarSize={32} />
 
           {hasPlan && (
             <Line dataKey="plan" name="Plan" stroke={COLORS.plan} strokeWidth={2} dot={{ r: 3, fill: COLORS.plan }} strokeDasharray="5 3" />
