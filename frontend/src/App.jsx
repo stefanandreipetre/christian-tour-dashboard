@@ -276,7 +276,7 @@ export default function App() {
                 <RevenueChart data={b2bChartData} title={b2bChartTitle}
                   showLY={period === 'monthly'} showPlan={period === 'monthly'} />
               </div>
-              <ChannelCompare b2bRevenue={b2bSummary?.revenue} b2cRevenue={b2cSummary?.revenue} />
+              <ChannelCompare b2bRevenue={null} b2cRevenue={b2cSummary?.revenue} />
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
