@@ -210,13 +210,17 @@ def _get_named_sheet(sheets: Dict[str, pd.DataFrame], *candidates: str) -> Tuple
 
 # Whitelist of sheets to load per source — ignore everything else to save RAM.
 # Render free tier is 512 MB; loading all sheets of large files causes OOM.
-# Substrings — a sheet is loaded if its name contains ANY of these (case-insensitive)
+# Sheet name matching per source.
+# For "target": exact case-insensitive match (avoids "B2B&B2C" matching "b2b")
+# For others: substring match
 SOURCE_SHEET_WHITELIST: Dict[str, list] = {
     "b2b":     ["data"],                             # "Data" sheet in B2B monthly file
     "b2c":     [],                                   # not used directly (B2C comes from outlook)
     "outlook": ["outlook", "ly", " p"],              # OUTLOOK / LY / P sheets
-    "target":  ["target 2026"],                      # only the 2026 sheet, not 2024
+    "target":  ["Target 2026", "B2B"],               # 2026 actuals sheet + B2B targets sheet
 }
+# Sources that should NOT have header promoted (use raw integer column indices)
+NO_HEADER_PROMOTE = {"target"}
 
 
 def load_excel_bytes(raw: bytes, source_key: str) -> Dict[str, pd.DataFrame]:
@@ -234,12 +238,14 @@ def load_excel_bytes(raw: bytes, source_key: str) -> Dict[str, pd.DataFrame]:
         logger.info("%s: file has %d sheets: %s", source_key, len(all_names), all_names[:15])
 
         if whitelist:
-            # Case-insensitive SUBSTRING match — sheet name must contain one of the whitelist entries
+            # "target" source: exact case-insensitive match (strict — avoids "B2B&B2C" etc.)
+            # other sources: substring match
             wl_lower = [w.lower() for w in whitelist]
-            target_names = [
-                s for s in all_names
-                if any(w in s.strip().lower() for w in wl_lower)
-            ]
+            if source_key == "target":
+                target_names = [s for s in all_names if s.strip().lower() in wl_lower]
+            else:
+                target_names = [s for s in all_names
+                                if any(w in s.strip().lower() for w in wl_lower)]
             if not target_names:
                 target_names = all_names[:1]
                 logger.warning("%s: whitelist %s matched nothing — loading first sheet only", source_key, whitelist)
@@ -262,9 +268,11 @@ def load_excel_bytes(raw: bytes, source_key: str) -> Dict[str, pd.DataFrame]:
     for name, df in raw_sheets.items():
         if df.empty or df.dropna(how="all").empty:
             continue
-        df = _promote_header(df)
-        df.columns = [str(c).strip() for c in df.columns]
-        df = df.dropna(how="all").reset_index(drop=True)
+        if source_key not in NO_HEADER_PROMOTE:
+            df = _promote_header(df)
+            df.columns = [str(c).strip() for c in df.columns]
+            df = df.dropna(how="all").reset_index(drop=True)
+        # For NO_HEADER_PROMOTE sources keep raw integer column indices + all rows
         result[name] = df
 
     del raw_sheets
@@ -629,175 +637,90 @@ def build_b2b_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
 
 def build_b2b_2026_from_target(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     """
-    Parse 'Target 2026' sheet for B2B 2026 actuals + plan.
+    Parse B2B 2026 actuals + plan from the Target file.
 
-    Sheet structure (based on actual file):
-      - Rows 1..N  : one row per agency with monthly Realizat + Target values
-      - Row 1462   : TOTAL row — grand total Realizat and Target per month
-      - Columns    : A=agency, B=region, then alternating pairs per month:
-                     odd cols (E,G,I...) = Realizat (actual)
-                     even cols (F,H,J...) = Target (plan)
+    Actuals  → sheet "Target 2026", row 1462 (Excel), columns G,I,K,M,O,Q,S,U,W,Y,AA,AC
+               = 0-indexed cols 6,8,10,12,14,16,18,20,22,24,26,28  → Jan-Dec
+    Plan     → sheet "B2B",         row 24   (Excel), columns B,C,D,E,F,G,H,I,J,K,L,M
+               = 0-indexed cols 1,2,3,4,5,6,7,8,9,10,11,12         → Jan-Dec
 
-    Strategy: find the TOTAL row (row ~1462, or last row with "total"/"grand" label).
-    Read Realizat and Target column values from it for each detected month.
+    Sheets are loaded with header=None (raw integer column indices, no row dropped).
     """
-    import re as _re
-
-    sheet_name, df_raw = _get_named_sheet(sheets, "Target 2026", "Target", "Targets", "Obiective")
-    if df_raw is None or len(df_raw) < 5:
-        logger.warning("B2B 2026: no target sheet found")
-        return []
-
-    logger.info("B2B 2026: sheet '%s' has %d rows × %d cols", sheet_name, len(df_raw), len(df_raw.columns))
-
-    # Re-load raw (with integer col indices) so we can inspect every row
-    # df_raw already went through _promote_header — work with it directly
-    # but also try to find header row manually if column names look wrong
-    df = df_raw.copy()
-
-    # ── Step 1: find column mapping ──────────────────────────────────────
-    # Look for a row containing "Realizat" and/or "Target" keywords to identify
-    # which columns are which. This is usually the first 1-3 rows.
-    realizat_cols: Dict[int, str] = {}   # month_num → col_name
-    target_cols:   Dict[int, str] = {}   # month_num → col_name
-
-    for col in df.columns:
-        cs = str(col).strip()
-        cl = cs.lower()
-        is_realizat = "realizat" in cl or cl.startswith("actual")
-        is_target   = ("target" in cl or "obiectiv" in cl) and "realizat" not in cl
-        if not (is_realizat or is_target):
-            continue
-        m = _month_from_str(cs)
-        y = _year_from_str(cs) or date.today().year
-        if m is None:
-            continue
-        if is_realizat and m not in realizat_cols:
-            realizat_cols[m] = col
-        elif is_target and m not in target_cols:
-            target_cols[m] = col
-
-    # If promoted headers didn't give us named columns, scan the raw rows
-    if not realizat_cols and not target_cols:
-        logger.warning("B2B 2026: no Realizat/Target cols in promoted headers — scanning rows for header")
-        # Try up to first 5 rows as potential header
-        all_months = set(range(1, 13))
-        for row_idx in range(min(5, len(df))):
-            row_vals = [str(v).strip() for v in df.iloc[row_idx]]
-            r_found, t_found = {}, {}
-            for ci, val in enumerate(row_vals):
-                cl = val.lower()
-                is_r = "realizat" in cl or cl.startswith("actual")
-                is_t = ("target" in cl or "obiectiv" in cl) and "realizat" not in cl
-                if not (is_r or is_t):
-                    continue
-                m = _month_from_str(val)
-                if m is None:
-                    continue
-                if is_r and m not in r_found:
-                    r_found[m] = df.columns[ci]
-                elif is_t and m not in t_found:
-                    t_found[m] = df.columns[ci]
-            if len(r_found) >= 3 or len(t_found) >= 3:
-                realizat_cols, target_cols = r_found, t_found
-                logger.info("B2B 2026: found column map in row %d (%d R, %d T cols)",
-                            row_idx, len(r_found), len(t_found))
-                break
-
-    logger.info("B2B 2026: Realizat months=%s  Target months=%s",
-                sorted(realizat_cols.keys()), sorted(target_cols.keys()))
-
-    all_month_nums = sorted(set(list(realizat_cols.keys()) + list(target_cols.keys())))
-    if not all_month_nums:
-        logger.warning("B2B 2026: no month columns resolved — returning empty")
-        return []
-
-    # ── Step 2: find the TOTAL row (row ~1462) ───────────────────────────
-    # Look for a row whose first non-null cell contains "total" or "grand"
-    # Search from the bottom up (total row is usually near the end)
-    desc_col = df.columns[0]  # first column is typically agency name
-    total_row = None
-    TOTAL_KW = ["total", "grand", "totale", "suma"]
-
-    for idx in range(len(df) - 1, max(len(df) - 20, -1), -1):
-        row = df.iloc[idx]
-        for c in df.columns[:4]:   # check first 4 columns
-            val = str(row.get(c, "")).strip().lower()
-            if val and any(kw in val for kw in TOTAL_KW):
-                # Verify it has some numeric data in our month columns
-                has_data = any(
-                    _parse_num(row.get(col)) for col in list(realizat_cols.values()) + list(target_cols.values())
-                )
-                if has_data:
-                    total_row = row
-                    logger.info("B2B 2026: found TOTAL row at index %d (val='%s')", idx, val)
-                    break
-        if total_row is not None:
-            break
-
-    # Fallback: try exactly row index 1461 (Excel row 1462, 0-indexed)
-    if total_row is None and len(df) > 1461:
-        total_row = df.iloc[1461]
-        logger.warning("B2B 2026: TOTAL row not found by keyword — using index 1461 (Excel row 1462)")
-
-    if total_row is None:
-        logger.warning("B2B 2026: no TOTAL row found — summing all agency rows")
-        # Sum all rows
-        monthly_rev: Dict[int, float]  = {}
-        monthly_plan: Dict[int, float] = {}
-        for _, row in df.iterrows():
-            for m, col in realizat_cols.items():
-                v = _parse_num(row.get(col))
-                if v and v > 0:
-                    monthly_rev[m] = monthly_rev.get(m, 0.0) + v
-            for m, col in target_cols.items():
-                v = _parse_num(row.get(col))
-                if v and v > 0:
-                    monthly_plan[m] = monthly_plan.get(m, 0.0) + v
-        records = []
-        for m in all_month_nums:
-            rev  = monthly_rev.get(m)
-            plan = monthly_plan.get(m)
-            if rev or plan:
-                records.append({
-                    "sheet": sheet_name, "month": m, "year": date.today().year,
-                    "revenue": round(rev, 2) if rev else None,
-                    "bookings": None,
-                    "plan": round(plan, 2) if plan else None,
-                    "ly": None, "agency": None, "zona": None, "date": None,
-                })
-        logger.info("B2B 2026: %d months from row sums (fallback)", len(records))
-        return records
-
-    # ── Step 3: read actuals + plan from the TOTAL row ───────────────────
     current_year = date.today().year
+
+    # ── Actuals from "Target 2026" sheet ─────────────────────────────────
+    # Row 1462 in Excel = index 1461 (0-based)
+    # Columns G,I,K,...AC = 0-indexed 6,8,10,12,14,16,18,20,22,24,26,28
+    ACTUALS_ROW   = 1461          # Excel row 1462, 0-indexed
+    ACTUALS_COLS  = [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28]   # G,I,K,M,O,Q,S,U,W,Y,AA,AC
+
+    # ── Plan from "B2B" sheet ────────────────────────────────────────────
+    # Row 24 in Excel = index 23 (0-based)
+    # Columns B-M = 0-indexed 1-12
+    PLAN_ROW  = 23                # Excel row 24, 0-indexed
+    PLAN_COLS = list(range(1, 13))  # cols B-M → months 1-12
+
+    months = list(range(1, 13))   # 1=Jan … 12=Dec
+
+    # ── Read actuals ─────────────────────────────────────────────────────
+    actuals: Dict[int, float] = {}
+    t26_name, t26_df = _get_named_sheet(sheets, "Target 2026", "Target 2026")
+    if t26_df is not None:
+        if ACTUALS_ROW < len(t26_df):
+            row = t26_df.iloc[ACTUALS_ROW]
+            for m, col_idx in zip(months, ACTUALS_COLS):
+                if col_idx < len(row):
+                    v = _parse_num(row.iloc[col_idx])
+                    if v and v > 0:
+                        actuals[m] = round(v, 2)
+            logger.info("B2B 2026: actuals from '%s' row %d: %d months with data — sample Jan=%s",
+                        t26_name, ACTUALS_ROW + 1, len(actuals), actuals.get(1))
+        else:
+            logger.warning("B2B 2026: 'Target 2026' has only %d rows — expected >=%d",
+                           len(t26_df), ACTUALS_ROW + 1)
+    else:
+        logger.warning("B2B 2026: 'Target 2026' sheet not found in %s", list(sheets.keys()))
+
+    # ── Read plan ────────────────────────────────────────────────────────
+    plan: Dict[int, float] = {}
+    b2b_name, b2b_df = _get_named_sheet(sheets, "B2B", "b2b")
+    if b2b_df is not None:
+        if PLAN_ROW < len(b2b_df):
+            row = b2b_df.iloc[PLAN_ROW]
+            for m, col_idx in zip(months, PLAN_COLS):
+                if col_idx < len(row):
+                    v = _parse_num(row.iloc[col_idx])
+                    if v and v > 0:
+                        plan[m] = round(v, 2)
+            logger.info("B2B 2026: plan from '%s' row %d: %d months — sample Jan=%s",
+                        b2b_name, PLAN_ROW + 1, len(plan), plan.get(1))
+        else:
+            logger.warning("B2B 2026: 'B2B' sheet has only %d rows — expected >=%d",
+                           len(b2b_df), PLAN_ROW + 1)
+    else:
+        logger.warning("B2B 2026: 'B2B' sheet not found in %s", list(sheets.keys()))
+
+    # ── Combine into records ─────────────────────────────────────────────
     records = []
-    for m in all_month_nums:
-        revenue = None
-        plan    = None
-        if m in realizat_cols:
-            v = _parse_num(total_row.get(realizat_cols[m]))
-            if v and v > 0:
-                revenue = round(v, 2)
-        if m in target_cols:
-            v = _parse_num(total_row.get(target_cols[m]))
-            if v and v > 0:
-                plan = round(v, 2)
-        if revenue is not None or plan is not None:
+    for m in months:
+        rev  = actuals.get(m)
+        pln  = plan.get(m)
+        if rev is not None or pln is not None:
             records.append({
-                "sheet":    sheet_name,
+                "sheet":    "Target 2026 + B2B",
                 "month":    m,
                 "year":     current_year,
-                "revenue":  revenue,
+                "revenue":  rev,
                 "bookings": None,
-                "plan":     plan,
+                "plan":     pln,
                 "ly":       None,
                 "agency":   None,
                 "zona":     None,
                 "date":     None,
             })
 
-    logger.info("B2B 2026: %d months from TOTAL row", len(records))
+    logger.info("B2B 2026: %d monthly records (actuals=%d, plan=%d)",
+                len(records), len(actuals), len(plan))
     return records
 
 
