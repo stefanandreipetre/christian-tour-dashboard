@@ -293,8 +293,6 @@ export default function App() {
               </div>
             </div>
 
-            <AgencyTable data={agencies} loading={loading} />
-          </>
           </>
         )}
 
