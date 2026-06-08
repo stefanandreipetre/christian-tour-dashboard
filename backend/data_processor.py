@@ -477,20 +477,15 @@ def _merge_b2b(daily, plan) -> List[Dict]:
 
 # ─── master builder ─────────────────────────────────────────────────────────
 
-def build_dashboard(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict]]:
+def build_wide_sheets(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict], List[Dict], List[Dict], List[Dict]]:
     """
-    Open CT Dashboard.xlsx ONCE, process all sheets in memory-efficient sequence:
-      1. Small sheets (B2C 2026 Actuals, P, LY, B2B P): rows → DataFrame → parse → del
-      2. Large daily sheets (B2C Daily, B2B Daily): stream row-by-row → aggregate
-    Never holds more than one sheet's data at a time.
+    PHASE 1 (fast, ~1-2 min): parse only the 4 small wide sheets.
+    Returns (actuals, plan, ly, b2b_plan, valid_branches) without touching daily sheets.
     """
     import openpyxl
 
     current_year = date.today().year
-
-    wb = openpyxl.load_workbook(
-        io.BytesIO(raw_bytes), read_only=True, data_only=True
-    )
+    wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
     available = wb.sheetnames
     logger.info("CT Dashboard.xlsx sheets: %s", available)
 
@@ -500,13 +495,11 @@ def build_dashboard(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict]]:
             return pd.DataFrame()
         rows = [list(r) for r in wb[sname].iter_rows(values_only=True)]
         df = pd.DataFrame(rows)
-        del rows
-        gc.collect()
+        del rows; gc.collect()
         logger.info("Loaded %s: %d rows × %d cols",
                     sname, len(df), len(df.columns) if not df.empty else 0)
         return df
 
-    # ── small sheets ──────────────────────────────────────────────────────
     actuals_df = _load_df("B2C 2026 Actuals")
     actuals = parse_b2c_wide_sheet(actuals_df, "B2C 2026 Actuals", "revenue", current_year)
     del actuals_df; gc.collect()
@@ -516,7 +509,6 @@ def build_dashboard(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict]]:
     del plan_df; gc.collect()
 
     ly_df = _load_df("LY")
-    # LY keyed to current_year so it merges with actuals/plan on same (year,month,branch)
     ly = parse_b2c_wide_sheet(ly_df, "LY", "ly", current_year)
     del ly_df; gc.collect()
 
@@ -524,28 +516,59 @@ def build_dashboard(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict]]:
     b2b_plan = parse_b2b_plan(b2b_plan_df)
     del b2b_plan_df; gc.collect()
 
-    # ── get valid B2C branches for daily filtering ─────────────────────────
-    valid_branches: Set[str] = {
-        r["branch"] for r in actuals + plan + ly if r.get("branch")
-    }
-    logger.info("Valid B2C branches: %d", len(valid_branches))
+    wb.close(); del wb; gc.collect()
 
-    # ── stream large sheets ────────────────────────────────────────────────
+    valid_branches: Set[str] = {r["branch"] for r in actuals + plan + ly if r.get("branch")}
+    logger.info("Valid B2C branches: %d", len(valid_branches))
+    return actuals, plan, ly, b2b_plan, valid_branches
+
+
+def merge_daily_into_cache(raw_bytes: bytes, valid_branches: Set[str],
+                            b2c_ts: List[Dict], b2b_ts: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
+    """
+    PHASE 2 (slow): stream B2C Daily and B2B Daily, merge pax/reservations
+    into already-cached timeseries. Returns updated lists.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+
     b2c_daily = _stream_b2c_daily(wb, valid_branches)
     gc.collect()
-
     b2b_daily = _stream_b2b_daily(wb)
     gc.collect()
 
-    wb.close()
-    del wb
-    gc.collect()
+    wb.close(); del wb; gc.collect()
 
-    # ── merge ──────────────────────────────────────────────────────────────
-    b2c = _merge_b2c(actuals, plan, ly, b2c_daily)
-    b2b = _merge_b2b(b2b_daily, b2b_plan)
+    if not b2c_daily and not b2b_daily:
+        logger.info("No daily data found — skipping merge")
+        return b2c_ts, b2b_ts
 
-    logger.info("Final — B2C: %d records, B2B: %d records", len(b2c), len(b2b))
+    # Extract existing wide-sheet data from already-cached records
+    actuals = [{"sheet": r["sheet"], "year": r["year"], "month": r["month"],
+                "branch": r["branch"], "region": r["region"], "revenue": r.get("revenue")}
+               for r in b2c_ts]
+    plan    = [{"year": r["year"], "month": r["month"], "branch": r["branch"],
+                "region": r["region"], "plan": r.get("plan")} for r in b2c_ts]
+    ly      = [{"year": r["year"], "month": r["month"], "branch": r["branch"],
+                "region": r["region"], "ly": r.get("ly")} for r in b2c_ts]
+    b2b_plan = [{"year": r["year"], "month": r["month"], "agency": r.get("agency"),
+                 "plan": r.get("plan")} for r in b2b_ts]
+
+    b2c_updated = _merge_b2c(actuals, plan, ly, b2c_daily)
+    b2b_daily_recs = [r for r in b2b_ts if r.get("revenue") is not None]
+    b2b_updated = _merge_b2b(b2b_daily_recs + b2b_daily, b2b_plan)
+
+    logger.info("After daily merge — B2C: %d  B2B: %d records", len(b2c_updated), len(b2b_updated))
+    return b2c_updated, b2b_updated
+
+
+def build_dashboard(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict]]:
+    """Convenience wrapper: phase 1 only (fast). Phase 2 handled separately in main.py."""
+    actuals, plan, ly, b2b_plan, _ = build_wide_sheets(raw_bytes)
+    b2c = _merge_b2c(actuals, plan, ly, [])
+    b2b = _merge_b2b([], b2b_plan)
+    logger.info("Wide-sheet build — B2C: %d  B2B: %d records", len(b2c), len(b2b))
     return b2c, b2b
 
 

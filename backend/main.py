@@ -1,6 +1,9 @@
 """
 Christian Tour Sales Dashboard — FastAPI Backend
 Single source: CT Dashboard.xlsx (SharePoint)
+Two-phase load:
+  Phase 1 (fast): wide sheets -> cache immediately (~2 min)
+  Phase 2 (slow): stream daily sheets -> merge into cache (background)
 """
 
 import os
@@ -21,7 +24,7 @@ import data_processor as dp
 from sharepoint_client import SharePointClient
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 sp        = SharePointClient()
@@ -31,20 +34,49 @@ _load_lock = threading.Lock()
 
 
 def load_dashboard() -> None:
-    """Download CT Dashboard.xlsx, build B2C + B2B timeseries, store in cache."""
+    """
+    Two-phase build so the cache is populated quickly:
+      Phase 1: download + parse wide sheets -> set cache (visible within ~2 min)
+      Phase 2: stream daily sheets -> merge pax/res into existing cache
+    """
     with _load_lock:
         try:
-            logger.info("Downloading CT Dashboard.xlsx …")
+            # Phase 1: small/wide sheets
+            logger.info("Downloading CT Dashboard.xlsx ...")
             raw = sp.download_file()
-            logger.info("Downloaded %d bytes — building timeseries …", len(raw))
+            logger.info("Downloaded %d bytes - parsing wide sheets ...", len(raw))
 
-            b2c_ts, b2b_ts = dp.build_dashboard(raw)
-            del raw
-            gc.collect()
+            actuals, plan, ly, b2b_plan, valid_branches = dp.build_wide_sheets(raw)
+
+            b2c_ts = dp._merge_b2c(actuals, plan, ly, [])
+            b2b_ts = dp._merge_b2b([], b2b_plan)
 
             cache.set_data("b2c", None, b2c_ts)
             cache.set_data("b2b", None, b2b_ts)
-            logger.info("Cache updated — B2C: %d  B2B: %d records", len(b2c_ts), len(b2b_ts))
+            logger.info("Phase 1 done - B2C: %d  B2B: %d records (wide sheets only)",
+                        len(b2c_ts), len(b2b_ts))
+
+            # Phase 2: stream daily sheets
+            logger.info("Phase 2: streaming daily sheets ...")
+            try:
+                b2c_updated, b2b_updated = dp.merge_daily_into_cache(
+                    raw, valid_branches, b2c_ts, b2b_ts
+                )
+                del raw; gc.collect()
+
+                cache.set_data("b2c", None, b2c_updated)
+                cache.set_data("b2b", None, b2b_updated)
+                logger.info("Phase 2 done - B2C: %d  B2B: %d records (with daily)",
+                            len(b2c_updated), len(b2b_updated))
+            except Exception as exc:
+                logger.error("Phase 2 (daily streaming) failed - keeping wide-sheet cache: %s",
+                             exc, exc_info=True)
+                try:
+                    del raw
+                except NameError:
+                    pass
+                gc.collect()
+
         except Exception as exc:
             logger.error("load_dashboard failed: %s", exc, exc_info=True)
 
@@ -67,7 +99,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 def _ts(channel: str):
     data = cache.get_data(channel)
     if data is None:
-        raise HTTPException(503, f"{channel} not yet loaded — retry in a moment")
+        raise HTTPException(503, f"{channel} not yet loaded - retry in a moment")
     return data.get("timeseries", [])
 
 
@@ -103,7 +135,7 @@ def status():
     }
 
 
-# ── B2C ───────────────────────────────────────────────────────────────────
+# B2C endpoints
 
 @app.get("/api/b2c/monthly")
 def b2c_monthly(year: Optional[int] = None, month: Optional[int] = None):
@@ -137,7 +169,7 @@ def b2c_branches(year: Optional[int] = None):
     return [{"branch": k, "region": v} for k, v in sorted(seen.items())]
 
 
-# ── B2B ───────────────────────────────────────────────────────────────────
+# B2B endpoints
 
 @app.get("/api/b2b/monthly")
 def b2b_monthly(year: Optional[int] = None, month: Optional[int] = None):
@@ -165,7 +197,7 @@ def b2b_partners(year: Optional[int] = None):
     return sorted({r["agency"] for r in _filter(_ts("b2b"), year) if r.get("agency")})
 
 
-# ── Debug ─────────────────────────────────────────────────────────────────
+# Debug endpoints
 
 @app.get("/api/debug/sheets")
 def debug_sheets():
