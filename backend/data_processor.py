@@ -481,13 +481,22 @@ def parse_b2b_plan(raw_df: pd.DataFrame) -> List[Dict]:
 # ─── Master builder ────────────────────────────────────────────────────────
 
 def load_excel_bytes(raw_bytes: bytes) -> Dict[str, pd.DataFrame]:
-    """Load only the needed sheets from CT Dashboard.xlsx."""
+    """
+    Load only the needed sheets using openpyxl read_only (streaming).
+
+    pd.ExcelFile() decompresses the ENTIRE zip on open — for an 89 MB file
+    that balloons to ~400 MB of XML and OOMs on the 512 MB free tier.
+    openpyxl read_only reads each sheet's XML lazily, one at a time.
+    """
     import gc
-    buf = io.BytesIO(raw_bytes)
+    import openpyxl
+
+    wb = openpyxl.load_workbook(
+        io.BytesIO(raw_bytes), read_only=True, data_only=True
+    )
     try:
-        xl = pd.ExcelFile(buf)
-        available = xl.sheet_names
-        logger.info("CT Dashboard.xlsx sheets available: %s", available)
+        available = wb.sheetnames
+        logger.info("CT Dashboard.xlsx sheets: %s", available)
 
         to_load = [s for s in SHEETS_NEEDED if s in available]
         missing  = [s for s in SHEETS_NEEDED if s not in available]
@@ -496,13 +505,22 @@ def load_excel_bytes(raw_bytes: bytes) -> Dict[str, pd.DataFrame]:
 
         sheets: Dict[str, pd.DataFrame] = {}
         for sname in to_load:
-            logger.info("Loading sheet: %s", sname)
-            sheets[sname] = xl.parse(sname, header=None)
+            ws = wb[sname]
+            rows = [list(row) for row in ws.iter_rows(values_only=True)]
+            try:
+                ws.reset_dimensions()   # releases the XML stream
+            except Exception:
+                pass
+            sheets[sname] = pd.DataFrame(rows)
+            del rows
             gc.collect()
+            logger.info("Loaded sheet %s: %d rows × %d cols",
+                        sname, len(sheets[sname]),
+                        len(sheets[sname].columns) if not sheets[sname].empty else 0)
 
         return sheets
     finally:
-        buf.close()
+        wb.close()
         gc.collect()
 
 
