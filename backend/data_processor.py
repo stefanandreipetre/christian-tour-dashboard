@@ -125,9 +125,11 @@ def _detect_region_col(df: pd.DataFrame, branch_col: Optional[str]) -> Optional[
     return None
 
 
-def _header_col_idx(header: list, *keywords) -> Optional[int]:
+def _header_col_idx(header: list, *keywords, exclude: set = None) -> Optional[int]:
     """Find column index in a raw header row by keyword."""
     for i, h in enumerate(header):
+        if exclude and i in exclude:
+            continue
         s = str(h).lower().strip() if h is not None else ""
         if any(kw in s for kw in keywords):
             return i
@@ -297,13 +299,15 @@ def _stream_b2b_daily(wb) -> List[Dict]:
                                               "agency", "denumire", "name", "partener")
                 pax_idx     = _header_col_idx(header, "pax", "pasageri", "persons")
                 rev_idx     = _header_col_idx(header, "valoare", "value", "revenue",
-                                              "vanzari", "realizat", "actual", "sales",
-                                              "incasat", "total")
+                                              "vanzari", "actual", "sales",
+                                              "incasat", "eur",
+                                              exclude={pax_idx} if pax_idx is not None else None)
                 month_idx   = _header_col_idx(header, "luna", "month", "lună",
                                               "period", "data", "date")
                 year_idx    = _header_col_idx(header, "year", "an", "anul")
-                logger.info("B2B Daily header: partner=%s pax=%s rev=%s month=%s year=%s",
-                            partner_idx, pax_idx, rev_idx, month_idx, year_idx)
+                logger.info("B2B Daily header: partner=%s pax=%s rev=%s month=%s year=%s | cols=%s",
+                            partner_idx, pax_idx, rev_idx, month_idx, year_idx,
+                            [str(h)[:20] if h else None for h in row_vals[:8]])
                 if partner_idx is None:
                     logger.warning("B2B Daily: no partner column")
                     return []
