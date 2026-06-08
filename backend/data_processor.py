@@ -210,11 +210,12 @@ def _get_named_sheet(sheets: Dict[str, pd.DataFrame], *candidates: str) -> Tuple
 
 # Whitelist of sheets to load per source — ignore everything else to save RAM.
 # Render free tier is 512 MB; loading all sheets of large files causes OOM.
+# Substrings — a sheet is loaded if its name contains ANY of these (case-insensitive)
 SOURCE_SHEET_WHITELIST: Dict[str, list] = {
-    "b2b":     ["Data", "data", "DATE"],             # historical monthly data
-    "b2c":     [],                                    # not used directly (B2C comes from outlook)
-    "outlook": ["OUTLOOK", "LY", "P"],               # actuals / last-year / plan
-    "target":  ["Target 2026", "Target", "Targets"], # 2026 actuals + plan per agency
+    "b2b":     ["data"],                             # "Data" sheet in B2B monthly file
+    "b2c":     [],                                   # not used directly (B2C comes from outlook)
+    "outlook": ["outlook", "ly", " p"],              # OUTLOOK / LY / P sheets
+    "target":  ["target 2026"],                      # only the 2026 sheet, not 2024
 }
 
 
@@ -233,11 +234,13 @@ def load_excel_bytes(raw: bytes, source_key: str) -> Dict[str, pd.DataFrame]:
         logger.info("%s: file has %d sheets: %s", source_key, len(all_names), all_names[:15])
 
         if whitelist:
-            # Case-insensitive match against whitelist
+            # Case-insensitive SUBSTRING match — sheet name must contain one of the whitelist entries
             wl_lower = [w.lower() for w in whitelist]
-            target_names = [s for s in all_names if s.strip().lower() in wl_lower]
+            target_names = [
+                s for s in all_names
+                if any(w in s.strip().lower() for w in wl_lower)
+            ]
             if not target_names:
-                # fallback: first sheet only
                 target_names = all_names[:1]
                 logger.warning("%s: whitelist %s matched nothing — loading first sheet only", source_key, whitelist)
             else:
@@ -540,10 +543,9 @@ def _parse_monthly_named_sheets(sheets: Dict[str, pd.DataFrame], *prefixes: str)
 def build_b2b_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     """
     B2B Monthly 2024-2025 file → 'Data' sheet.
-    Expected columns: Agency/Partner, Year, Month (or Date), Revenue/Sales.
-    Handles both transactional (one row per month per agency) and
-    wide-format (one row per agency, month columns) layouts.
-    Only returns historical years (not current year — that comes from Target file).
+    Known columns: Client Name, Total Pax, Total Nett, Month, Year, month only, City, Zona
+    Aggregates Total Nett by (Year, month only) → one record per month per year.
+    Only returns years < current year (2026 data comes from Target file).
     """
     current_year = date.today().year
 
@@ -559,63 +561,69 @@ def build_b2b_timeseries(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
         return []
 
     logger.info("B2B history: sheet '%s' (%d rows × %d cols)", sheet_name, len(df), len(df.columns))
-    logger.info("B2B history: columns = %s", list(df.columns)[:15])
+    cols_lower = {str(c).strip().lower(): c for c in df.columns}
+    logger.info("B2B history: columns = %s", list(df.columns)[:12])
 
-    # Detect layout: transactional (has Year + Month cols) vs wide (month cols in headers)
-    year_col    = _detect_col(df, YEAR_KEYWORDS)
-    month_col   = _detect_col(df, MONTH_KEYWORDS)
-    revenue_col = _detect_col(df, REVENUE_KEYWORDS)
-    agency_col  = _detect_col(df, AGENCY_KEYWORDS)
-    zona_col    = _detect_col(df, ZONA_KEYWORDS)
-    if zona_col == agency_col:
-        zona_col = None
+    # Map known column names (case-insensitive)
+    revenue_col = (cols_lower.get("total nett") or cols_lower.get("nett") or
+                   cols_lower.get("total net")  or _detect_col(df, REVENUE_KEYWORDS))
+    year_col    = (cols_lower.get("year")       or _detect_col(df, YEAR_KEYWORDS))
+    month_col   = (cols_lower.get("month only") or cols_lower.get("month")  or
+                   _detect_col(df, MONTH_KEYWORDS))
+    agency_col  = (cols_lower.get("client name") or cols_lower.get("agentie") or
+                   _detect_col(df, AGENCY_KEYWORDS))
+    zona_col    = (cols_lower.get("zona") or cols_lower.get("city") or
+                   _detect_col(df, ZONA_KEYWORDS))
 
-    logger.info("B2B history col detection: year=%s month=%s revenue=%s agency=%s",
-                year_col, month_col, revenue_col, agency_col)
+    logger.info("B2B history cols: revenue=%s year=%s month=%s agency=%s zona=%s",
+                revenue_col, year_col, month_col, agency_col, zona_col)
 
-    if year_col and month_col and revenue_col:
-        # Transactional layout — use generic parser, filter out current year
+    if not (revenue_col and year_col and month_col):
+        logger.error("B2B history: missing essential columns — falling back to generic parser")
         records = _parse_sheet_records(sheet_name, df)
-        records = [r for r in records if r.get("year") and r["year"] < current_year]
-        logger.info("B2B history: %d transactional records (excl. %d)", len(records), current_year)
-        return records
+        return [r for r in records if r.get("year") and r["year"] < current_year]
 
-    # Wide layout: each row = one agency, columns = months (IAN YY, FEB YY ...)
-    # Aggregate per month across all agencies → one record per month per year
-    month_year_cols: Dict[tuple, str] = {}  # (month, year) → col_name
-    for col in df.columns:
-        cs = str(col).strip()
-        m  = _month_from_str(cs)
-        y  = _year_from_str(cs) or current_year
-        if m and (m, y) not in month_year_cols:
-            month_year_cols[(m, y)] = col
+    # Aggregate Total Nett by (year, month) — one record per month
+    sums: Dict[tuple, float] = {}
+    for _, row in df.iterrows():
+        try:
+            y = int(float(str(row.get(year_col, "")).replace(",", "")))
+        except (ValueError, TypeError):
+            continue
+        if y >= current_year:
+            continue   # 2026+ comes from Target file
 
-    if month_year_cols:
-        sums: Dict[tuple, float] = {}
-        for _, row in df.iterrows():
-            for (m, y), col in month_year_cols.items():
-                if y >= current_year:
-                    continue   # skip current year — comes from Target file
-                v = _parse_num(row.get(col))
-                if v and v > 0:
-                    sums[(m, y)] = sums.get((m, y), 0.0) + v
+        raw_m = row.get(month_col)
+        m = None
+        if raw_m is not None:
+            try:
+                m = int(float(str(raw_m).replace(",", "")))
+            except (ValueError, TypeError):
+                m = _parse_month(str(raw_m))
+        if not m or not (1 <= m <= 12):
+            continue
 
-        records = []
-        for (m, y), total in sorted(sums.items()):
-            records.append({
-                "sheet": sheet_name, "month": m, "year": y,
-                "revenue": round(total, 2), "bookings": None,
-                "plan": None, "ly": None,
-                "agency": None, "zona": None, "date": None,
-            })
-        logger.info("B2B history: %d wide-format records (%d month×year combos)",
-                    len(records), len(month_year_cols))
-        return records
+        v = _parse_num(row.get(revenue_col))
+        if v and v != 0:
+            sums[(y, m)] = sums.get((y, m), 0.0) + v
 
-    # Last resort: generic parser
-    records = _parse_sheet_records(sheet_name, df)
-    records = [r for r in records if r.get("year") and r["year"] < current_year]
-    logger.info("B2B history: %d generic records", len(records))
+    records = []
+    for (y, m), total in sorted(sums.items()):
+        records.append({
+            "sheet":    sheet_name,
+            "month":    m,
+            "year":     y,
+            "revenue":  round(total, 2),
+            "bookings": None,
+            "plan":     None,
+            "ly":       None,
+            "agency":   None,
+            "zona":     None,
+            "date":     None,
+        })
+
+    logger.info("B2B history: %d monthly aggregates across years %s",
+                len(records), sorted({r["year"] for r in records}))
     return records
 
 
