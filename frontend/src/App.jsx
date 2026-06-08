@@ -58,6 +58,26 @@ function PeriodToggle({ value, onChange, options = PERIODS }) {
   )
 }
 
+// Fold a monthly-records array into a single summary object for KPICard / GaugeCard
+function aggregateSummary(rows) {
+  if (!Array.isArray(rows) || !rows.length) return null
+  const agg = rows.reduce(
+    (acc, r) => ({
+      revenue:      acc.revenue      + (r.revenue      || 0),
+      plan:         acc.plan         + (r.plan         || 0),
+      ly:           acc.ly           + (r.ly           || 0),
+      pax:          acc.pax          + (r.pax          || 0),
+      reservations: acc.reservations + (r.reservations || 0),
+    }),
+    { revenue: 0, plan: 0, ly: 0, pax: 0, reservations: 0 }
+  )
+  agg.bookings     = agg.pax
+  agg.vs_ly_pct    = agg.ly   ? +((agg.revenue / agg.ly   - 1) * 100).toFixed(1) : null
+  agg.vs_plan_pct  = agg.plan ? +((agg.revenue / agg.plan)     * 100).toFixed(1) : null
+  return agg
+}
+
+
 export default function App() {
   const [tab, setTab]             = useState('overview')
   const [period, setPeriod]       = useState('monthly')
@@ -142,8 +162,8 @@ export default function App() {
     return () => clearInterval(id)
   }, [fetchAll])
 
-  const b2bSummary = b2bSummaryData ?? overview?.b2b?.summary
-  const b2cSummary = b2cSummaryData ?? overview?.b2c?.summary
+  const b2bSummary = aggregateSummary(b2bSummaryData) ?? overview?.b2b?.summary
+  const b2cSummary = aggregateSummary(b2cSummaryData) ?? overview?.b2c?.summary
   const lastUpdated = status
     ? Math.max(status.b2c?.updated_at || 0, status.b2b?.updated_at || 0)
     : null
