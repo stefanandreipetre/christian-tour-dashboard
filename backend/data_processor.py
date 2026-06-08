@@ -542,7 +542,7 @@ def build_b2b_2026_from_target(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     Columns: AGENTIE, REGIUNE, ORAS, Target Jan26, Realizat Jan26, Target Feb26, Realizat Feb26, ...
     Returns one record per agency×month with revenue (Realizat) and plan (Target).
     """
-    sheet_name, df = _get_named_sheet(sheets, ["Target 2026", "Target", "Targets", "Obiective"])
+    sheet_name, df = _get_named_sheet(sheets, "Target 2026", "Target", "Targets", "Obiective")
     if df is None or len(df) < 3:
         logger.warning("B2B 2026: no target sheet found in provided sheets")
         return []
@@ -648,7 +648,7 @@ def build_b2c_from_etrip_tina(sheets: Dict[str, pd.DataFrame]) -> List[Dict]:
     Known columns: Region, Branch Name, Reservations, Pax, Price Gross, Date, Year, Month Name, ...
     Produces one record per row with revenue, zona (branch), year, month, and date (for daily/weekly charts).
     """
-    sheet_name, df = _get_named_sheet(sheets, ["etrip", "tina"])
+    sheet_name, df = _get_named_sheet(sheets, "etrip", "tina")
     if df is None or len(df) < 5:
         return []
 
