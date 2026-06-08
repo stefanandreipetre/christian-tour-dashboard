@@ -231,7 +231,7 @@ def b2b_vs_target(year: Optional[int] = Query(None), month: Optional[int] = Quer
 
     combined = []
     for a, t in zip(actual_monthly, target_monthly):
-        combined.append({**a, "target": t.get("revenue")})
+        combined.append({**a, "target": t.get("plan") or a.get("plan") or t.get("revenue")})
 
     return {"actual": actual, "target_kpi": target, "monthly": combined}
 
