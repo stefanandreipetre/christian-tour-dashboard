@@ -3,8 +3,11 @@ import React from 'react'
 export default function StatusBanner({ status }) {
   if (!status) return null
 
-  const allLoaded = Object.values(status.sources).every(s => s.loaded)
-  const anyLoaded = Object.values(status.sources).some(s => s.loaded)
+  // New status shape: { b2c: { records, updated_at }, b2b: { records, updated_at } }
+  const b2cLoaded = (status.b2c?.records ?? 0) > 0
+  const b2bLoaded = (status.b2b?.records ?? 0) > 0
+  const allLoaded = b2cLoaded && b2bLoaded
+  const anyLoaded = b2cLoaded || b2bLoaded
 
   if (allLoaded) return null
 
@@ -18,9 +21,8 @@ export default function StatusBanner({ status }) {
           {anyLoaded ? 'Date parțial încărcate' : 'Nu s-au putut încărca datele'}
         </strong>
         <p className="mt-0.5">
-          Verifică că variabilele de mediu <code className="bg-white/60 px-1 rounded">SHAREPOINT_USERNAME</code> și{' '}
-          <code className="bg-white/60 px-1 rounded">SHAREPOINT_PASSWORD</code> sunt setate corect în Render.
-          {' '}Surse: {Object.entries(status.sources).map(([k, v]) => `${k}: ${v.loaded ? '✓' : '✗'}`).join(' | ')}
+          B2C: {b2cLoaded ? `✓ ${status.b2c.records} înregistrări` : '✗ în curs de încărcare'}{' '}|{' '}
+          B2B: {b2bLoaded ? `✓ ${status.b2b.records} înregistrări` : '✗ în curs de încărcare'}
         </p>
       </div>
     </div>
