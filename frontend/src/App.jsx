@@ -95,10 +95,10 @@ export default function App() {
         getOverview(year),
         getB2BSummary(year, month),
         getB2CSummary(year, month),
-        getB2BMonthly(year, compareYear),
+        getB2BMonthly(year),
         getB2BRecent(8),
         getB2BYearly(),
-        getB2CMonthly(year, compareYear),
+        getB2CMonthly(year),
         getB2CRecent(8),
         getB2CYearly(),
         getB2BAgencies(year, month, 30),
@@ -145,7 +145,7 @@ export default function App() {
   const b2bSummary = b2bSummaryData ?? overview?.b2b?.summary
   const b2cSummary = b2cSummaryData ?? overview?.b2c?.summary
   const lastUpdated = status
-    ? Math.max(...Object.values(status.sources).map(s => s.updated_at || 0))
+    ? Math.max(status.b2c?.updated_at || 0, status.b2b?.updated_at || 0)
     : null
 
   // Period-aware chart data helpers
