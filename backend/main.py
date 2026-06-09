@@ -96,13 +96,24 @@ def load_dashboard() -> None:
                         len(b2c_ts), len(b2b_ts))
 
             # Phase 2: stream daily sheets
+            # Save raw bytes to a temp file so Phase 2 doesn't need 90MB in RAM
             logger.info("Phase 2: streaming daily sheets ...")
+            TMP_XLSX = "/tmp/ct_dashboard_p2.xlsx"
+            try:
+                with open(TMP_XLSX, "wb") as _f:
+                    _f.write(raw)
+                del raw; gc.collect()
+            except Exception as exc:
+                logger.error("Failed to write temp file for Phase 2: %s", exc)
+                try: del raw
+                except NameError: pass
+                gc.collect()
+                return
+
             try:
                 b2c_updated, b2b_updated = dp.merge_daily_into_cache(
-                    raw, valid_branches, b2c_ts, b2b_ts
+                    TMP_XLSX, valid_branches, b2c_ts, b2b_ts
                 )
-                del raw; gc.collect()
-
                 cache.set_data("b2c", None, b2c_updated)
                 cache.set_data("b2b", None, b2b_updated)
                 logger.info("Phase 2 done - B2C: %d  B2B: %d records (with daily)",
@@ -111,10 +122,9 @@ def load_dashboard() -> None:
             except Exception as exc:
                 logger.error("Phase 2 (daily streaming) failed - keeping wide-sheet cache: %s",
                              exc, exc_info=True)
-                try:
-                    del raw
-                except NameError:
-                    pass
+            finally:
+                try: os.unlink(TMP_XLSX)
+                except OSError: pass
                 gc.collect()
 
         except Exception as exc:
