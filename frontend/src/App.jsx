@@ -144,6 +144,7 @@ export default function App() {
   const [status,         setStatus]         = useState(null)
   const [b2bSummaryData, setB2bSummaryData] = useState(null)
   const [b2cSummaryData, setB2cSummaryData] = useState(null)
+  const [b2bSummaryLYData, setB2bSummaryLYData] = useState(null)
   const [agencies,       setAgencies]       = useState([])
   const [agenciesLY,     setAgenciesLY]     = useState([])
   const [b2cBranches,    setB2cBranches]    = useState([])
@@ -153,13 +154,14 @@ export default function App() {
   const fetchAll = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const [st, b2bSum, b2cSum, ag, agLY, b2cBr] = await Promise.allSettled([
+      const [st, b2bSum, b2cSum, b2bSumLY, ag, agLY, b2cBr] = await Promise.allSettled([
         getStatus(),
         getB2BSummary(year),
         getB2CSummary(year),
-        getB2BAgencies(year),
-        getB2BAgencies(year - 1),
-        getB2CBranches(year),
+        getB2BSummary(year - 1),
+        getB2BAgencies(year, ytdMonth),
+        getB2BAgencies(year - 1, ytdMonth),
+        getB2CBranches(year, ytdMonth),
       ])
       if (st.status     === 'fulfilled') setStatus(st.value)
       if (b2bSum.status === 'fulfilled') setB2bSummaryData(b2bSum.value)
@@ -169,8 +171,7 @@ export default function App() {
       if (b2cBr.status  === 'fulfilled') setB2cBranches(b2cBr.value)
     } catch (e) { setError(e.message) }
     finally { setLoading(false) }
-  }, [year])
-
+  }, [year, ytdMonth])
   useEffect(() => { fetchAll() }, [fetchAll])
   useEffect(() => {
     const id = setInterval(fetchAll, 5 * 60 * 1000)
@@ -196,14 +197,16 @@ export default function App() {
   const b2cChartRows = toChartRows(b2cSummaryData, ytdMonth)
   const b2bChartRows = toChartRows(b2bSummaryData, ytdMonth)
 
-  // Combined chart: sum B2B + B2C per month
+  // B2B LY from previous-year actuals
+const b2bLYChartRows = toChartRows(b2bSummaryLYData, ytdMonth)
+// Combined chart: sum B2B + B2C per month
   const combinedChartRows = b2cChartRows.map(r => {
     const b2b = b2bChartRows.find(x => x.month === r.month) || {}
     return {
       ...r,
       revenue:   (r.revenue   || 0) + (b2b.revenue   || 0),
       plan:      (r.plan      || 0) + (b2b.plan      || 0),
-      revenueLY: (r.revenueLY || 0) + (b2b.revenueLY || 0),
+      revenueLY: (r.revenueLY || 0) + (b2bLY.revenue || 0),
     }
   })
 
