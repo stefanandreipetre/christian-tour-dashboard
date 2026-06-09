@@ -261,22 +261,13 @@ def b2b_partners(year: Optional[int] = None):
     return result
 
 
-@app.get("/api/debug/b2b-rows")
-def debug_b2b_rows():
-    """Return first 12 data rows of B2B Daily with column types — for diagnosis only."""
-    import openpyxl, io
-    try:
-        raw = sp.download_file()
-    except Exception as e:
-        return {"error": f"download failed: {e}"}
-    wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-    if "B2B Daily" not in wb.sheetnames:
-        return {"error": "B2B Daily not found", "sheets": wb.sheetnames}
-    ws = wb["B2B Daily"]
-    rows_out = []
-    for i, row in enumerate(ws.iter_rows(values_only=True)):
-        if i >= 14:
-            break
-        rows_out.append([{"v": str(v)[:40], "t": type(v).__name__} for v in row if v is not None])
-    wb.close()
-    return {"rows": rows_out}
+@app.get("/api/debug/b2b-cache")
+def debug_b2b_cache():
+    """Return first 20 B2B timeseries records from in-memory cache — fast, no re-download."""
+    ts = _ts("b2b")
+    sample = ts[:20] if ts else []
+    return {
+        "total_records": len(ts),
+        "records_with_revenue": sum(1 for r in ts if r.get("revenue") not in (None, 0.0)),
+        "sample": sample,
+    }

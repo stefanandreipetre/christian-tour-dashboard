@@ -51,10 +51,10 @@ function aggregateSummary(rows, maxMonth = 12) {
   return agg
 }
 
-function toChartRows(rows) {
+function toChartRows(rows, maxMonth = 12) {
   if (!Array.isArray(rows)) return []
   return rows
-    .filter(r => r.month >= 1 && r.month <= 12)
+    .filter(r => r.month >= 1 && r.month <= maxMonth)
     .sort((a, b) => a.month - b.month)
     .map(r => ({ ...r, monthName: MN[r.month - 1], revenueLY: r.ly || null }))
 }
@@ -193,8 +193,8 @@ export default function App() {
   const ytdLabel = `Ian - ${MN[ytdMonth - 1]} ${year}`
 
   // Full-year chart rows (not YTD-filtered — chart always shows all months)
-  const b2cChartRows = toChartRows(b2cSummaryData)
-  const b2bChartRows = toChartRows(b2bSummaryData)
+  const b2cChartRows = toChartRows(b2cSummaryData, ytdMonth)
+  const b2bChartRows = toChartRows(b2bSummaryData, ytdMonth)
 
   // Combined chart: sum B2B + B2C per month
   const combinedChartRows = b2cChartRows.map(r => {
