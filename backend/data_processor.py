@@ -749,6 +749,12 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                             except ValueError:
                                 pass
 
+                # Try to extract year from month string (e.g. "Ian 2025", "January 2025")
+                if yr is None and raw_m is not None:
+                    import re as _re
+                    _m_yr = _re.search(r'\b(20\d\d)\b', str(raw_m))
+                    if _m_yr:
+                        yr = int(_m_yr.group(1))
                 if yr is None:
                     yr = current_year
                     if year_idx is not None and year_idx < len(row_vals):
