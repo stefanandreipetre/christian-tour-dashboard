@@ -210,9 +210,12 @@ def b2c_summary(year: Optional[int] = None, month: Optional[int] = None):
 
 
 @app.get("/api/b2c/branches")
-def b2c_branches(year: Optional[int] = None):
+def b2c_branches(year: Optional[int] = None, max_month: Optional[int] = None):
     agg: dict = {}
-    for r in _filter(_ts("b2c"), year):
+    records = _filter(_ts("b2c"), year)
+    if max_month:
+        records = [r for r in records if (r.get("month") or 0) <= max_month]
+    for r in records:
         b = r.get("branch")
         if not b:
             continue
@@ -254,20 +257,22 @@ def b2b_summary(year: Optional[int] = None, month: Optional[int] = None):
 
 
 @app.get("/api/b2b/partners")
-def b2b_partners(year: Optional[int] = None):
+def b2b_partners(year: Optional[int] = None, max_month: Optional[int] = None):
     agg: dict = {}
-    for r in _filter(_ts("b2b"), year):
+    records = _filter(_ts("b2b"), year)
+    if max_month:
+        records = [r for r in records if (r.get("month") or 0) <= max_month]
+    for r in records:
         a = r.get("agency")
         if not a:
             continue
         if a not in agg:
-            agg[a] = {"agency": a, "pax": 0}
-        pax_val = int(r.get("pax") or r.get("revenue") or 0)
-        agg[a]["pax"] += pax_val
-    result = sorted(agg.values(), key=lambda x: x["pax"], reverse=True)
+            agg[a] = {"agency": a, "revenue": 0.0, "pax": 0}
+        agg[a]["revenue"] = round(agg[a]["revenue"] + (r.get("revenue") or 0), 2)
+        agg[a]["pax"] += int(r.get("pax") or 0)
+    result = sorted(agg.values(), key=lambda x: x["revenue"], reverse=True)
     for r in result:
         r["bookings"] = r["pax"]
-        r["revenue"] = r["pax"]  # PAX as proxy revenue for display compatibility
     return result
 
 
