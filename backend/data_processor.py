@@ -553,6 +553,241 @@ def build_wide_sheets(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict], List[Di
     return actuals, plan, ly, b2b_plan, valid_branches
 
 
+
+def _col_letter_to_idx(ref: str) -> int:
+    """Convert cell ref like 'A1' or 'AB3' to 0-based column index."""
+    idx = 0
+    for ch in ref:
+        if not ch.isalpha():
+            break
+        idx = idx * 26 + (ord(ch.upper()) - ord('A') + 1)
+    return idx - 1
+
+
+def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
+    """
+    Stream B2B Daily directly from the xlsx ZIP using iterparse.
+    Avoids loading the full openpyxl workbook — saves ~100MB+ RAM by
+    streaming the shared strings and sheet XML element-by-element with
+    elem.clear() after each row so memory stays flat.
+    """
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    NS   = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+    try:
+        zf = zipfile.ZipFile(xlsx_path, "r")
+    except Exception as exc:
+        logger.error("B2B Daily direct: cannot open zip %s: %s", xlsx_path, exc)
+        return []
+
+    try:
+        names = zf.namelist()
+
+        # ── shared strings — iterparse to avoid loading whole XML ────────────
+        shared_strings: List[str] = []
+        if "xl/sharedStrings.xml" in names:
+            with zf.open("xl/sharedStrings.xml") as f:
+                cur_parts: List[str] = []
+                in_si = False
+                for event, elem in ET.iterparse(f, events=["start", "end"]):
+                    tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                    if event == "start" and tag == "si":
+                        cur_parts = []
+                        in_si = True
+                    elif event == "end" and tag == "t" and in_si:
+                        cur_parts.append(elem.text or "")
+                    elif event == "end" and tag == "si":
+                        shared_strings.append("".join(cur_parts))
+                        in_si = False
+                        elem.clear()
+            logger.info("B2B Daily direct: %d shared strings loaded", len(shared_strings))
+
+        # ── find B2B Daily sheet path via workbook rels ─────────────────────
+        sheet_rid = None
+        with zf.open("xl/workbook.xml") as f:
+            for event, elem in ET.iterparse(f, events=["end"]):
+                tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                if tag == "sheet" and elem.get("name") == "B2B Daily":
+                    for attr_key, attr_val in elem.attrib.items():
+                        if attr_key.endswith("}id"):
+                            sheet_rid = attr_val
+                            break
+                    if sheet_rid is None:
+                        sheet_rid = elem.get(f"{{{NS_R}}}id")
+                elem.clear()
+
+        if sheet_rid is None:
+            logger.warning("B2B Daily sheet not found in workbook.xml")
+            return []
+
+        sheet_path = None
+        rels_path = "xl/_rels/workbook.xml.rels"
+        if rels_path in names:
+            with zf.open(rels_path) as f:
+                for event, elem in ET.iterparse(f, events=["end"]):
+                    if elem.get("Id") == sheet_rid:
+                        target = elem.get("Target", "")
+                        sheet_path = ("xl/" + target) if not target.startswith("xl/") else target
+                    elem.clear()
+
+        if not sheet_path or sheet_path not in names:
+            logger.warning("B2B Daily: rels lookup failed (rid=%s path=%s) — trying index fallback",
+                           sheet_rid, sheet_path)
+            ws_files = sorted(n for n in names if n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))
+            sheet_path = ws_files[4] if len(ws_files) >= 5 else (ws_files[-1] if ws_files else None)
+            if not sheet_path or sheet_path not in names:
+                logger.error("B2B Daily direct: cannot locate worksheet XML")
+                return []
+
+        logger.info("B2B Daily direct: parsing %s", sheet_path)
+
+        # ── stream rows with iterparse, elem.clear() after each row ─────────
+        header = None
+        partner_idx = pax_idx = rev_idx = month_idx = year_idx = None
+        records: List[Dict] = []
+        skip_no_partner = skip_no_month = 0
+        current_year = date.today().year
+
+        with zf.open(sheet_path) as f:
+            for event, elem in ET.iterparse(f, events=["end"]):
+                tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                if tag != "row":
+                    continue
+
+                # Build sparse row: column letter → value
+                cells: dict = {}
+                for c_elem in elem.findall(f"{{{NS}}}c"):
+                    ref = c_elem.get("r", "")
+                    if not ref:
+                        continue
+                    col_idx = _col_letter_to_idx(ref)
+                    t_type  = c_elem.get("t", "")
+                    v_elem  = c_elem.find(f"{{{NS}}}v")
+                    if v_elem is None:
+                        val = None
+                    elif t_type == "s":
+                        try:
+                            val = shared_strings[int(v_elem.text)]
+                        except (IndexError, ValueError, TypeError):
+                            val = None
+                    elif t_type in ("str", "inlineStr"):
+                        val = v_elem.text
+                    else:
+                        try:
+                            val = float(v_elem.text)
+                        except (ValueError, TypeError):
+                            val = v_elem.text
+                    cells[col_idx] = val
+
+                elem.clear()  # free XML memory immediately
+
+                if not cells:
+                    continue
+
+                max_col  = max(cells.keys()) + 1
+                row_vals = [cells.get(i) for i in range(max_col)]
+
+                if not any(v is not None for v in row_vals):
+                    continue
+
+                if header is None:
+                    str_count = sum(1 for v in row_vals if isinstance(v, str) and str(v).strip())
+                    if str_count >= 2:
+                        candidate = [str(v).strip().lower() if v is not None else "" for v in row_vals]
+                        c_partner = _header_col_idx(candidate, "partner", "client", "agentie",
+                                                     "agency", "denumire", "name", "partener")
+                        c_month   = _header_col_idx(candidate, "luna", "month", "lună",
+                                                     "period", "data", "date")
+                        if c_partner is not None and c_month is not None:
+                            header      = candidate
+                            partner_idx = c_partner
+                            pax_idx     = _header_col_idx(header, "pax", "pasageri", "persons")
+                            rev_idx     = _header_col_idx(header, "valoare", "value", "revenue",
+                                                          "vanzari", "actual", "sales",
+                                                          "incastat", "eur", "nett", "net",
+                                                          "total", "realizat",
+                                                          exclude={pax_idx} if pax_idx is not None else None)
+                            month_idx   = c_month
+                            year_idx    = _header_col_idx(header, "year", "an", "anul")
+                            logger.info(
+                                "B2B Daily direct header: partner=%s pax=%s rev=%s month=%s | cols=%s",
+                                partner_idx, pax_idx, rev_idx, month_idx,
+                                [str(h)[:20] if h else None for h in row_vals[:8]])
+                        else:
+                            logger.info("B2B Daily direct: skipping non-header row: %s",
+                                        [str(v)[:15] for v in row_vals[:6]])
+                    continue
+
+                # parse partner
+                partner = None
+                if partner_idx is not None and partner_idx < len(row_vals) and row_vals[partner_idx] is not None:
+                    partner = str(row_vals[partner_idx]).strip()
+                if not partner or partner.lower() in ("nan", "none", "", "-"):
+                    skip_no_partner += 1
+                    continue
+                if partner.replace(".", "").lstrip("-").isdigit():
+                    skip_no_partner += 1
+                    continue
+
+                # parse month/year
+                raw_m = row_vals[month_idx] if month_idx is not None and month_idx < len(row_vals) else None
+                mo = yr = None
+
+                if isinstance(raw_m, (datetime, date)):
+                    mo, yr = raw_m.month, raw_m.year
+                elif raw_m is not None:
+                    mo = _col_to_month(raw_m)
+                    if not mo:
+                        for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%m/%Y", "%d/%m/%Y"):
+                            try:
+                                dt_parsed = datetime.strptime(str(raw_m).strip(), fmt)
+                                mo, yr = dt_parsed.month, dt_parsed.year
+                                break
+                            except ValueError:
+                                pass
+
+                if yr is None:
+                    yr = current_year
+                    if year_idx is not None and year_idx < len(row_vals):
+                        yv = _num(row_vals[year_idx])
+                        if yv:
+                            yr = int(yv)
+
+                if not mo:
+                    skip_no_month += 1
+                    if skip_no_month <= 3:
+                        logger.warning(
+                            "B2B Daily direct: skipping row — cannot parse month from %r (type=%s) partner=%r",
+                            raw_m, type(raw_m).__name__, partner)
+                    continue
+
+                rev = _num(row_vals[rev_idx]) if rev_idx is not None and rev_idx < len(row_vals) else None
+                pax = _num(row_vals[pax_idx]) if pax_idx is not None and pax_idx < len(row_vals) else None
+
+                records.append({
+                    "sheet": "B2B Daily", "year": yr, "month": mo, "agency": partner,
+                    "revenue": round(rev * K_EUR, 2) if rev is not None else None,
+                    "pax": int(pax) if pax is not None else None,
+                    "plan": None, "ly": None,
+                })
+
+        logger.info("B2B Daily direct: %d records (skipped: no_partner=%d no_month=%d)",
+                    len(records), skip_no_partner, skip_no_month)
+        return records
+
+    except Exception as exc:
+        logger.error("B2B Daily direct failed: %s", exc, exc_info=True)
+        return []
+    finally:
+        try:
+            zf.close()
+        except Exception:
+            pass
+
+
 def merge_daily_into_cache(xlsx_path: str, valid_branches: Set[str],
                             b2c_ts: List[Dict], b2b_ts: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
     """
@@ -568,10 +803,9 @@ def merge_daily_into_cache(xlsx_path: str, valid_branches: Set[str],
     b2c_daily = _stream_b2c_daily(wb, valid_branches)
     wb.close(); del wb; gc.collect()
 
-    # Stream B2B Daily — fresh workbook to avoid accumulated row cache
-    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
-    b2b_daily = _stream_b2b_daily(wb)
-    wb.close(); del wb; gc.collect()
+    # Stream B2B Daily — direct zipfile/iterparse to avoid openpyxl memory overhead
+    b2b_daily = _stream_b2b_daily_direct(xlsx_path)
+    gc.collect()
 
     if not b2c_daily and not b2b_daily:
         logger.info("No daily data found — skipping merge")
