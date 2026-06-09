@@ -336,6 +336,10 @@ def _stream_b2b_daily(wb) -> List[Dict]:
         if not partner or partner.lower() in ("nan", "none", "", "-"):
             skip_no_partner += 1
             continue
+        # Skip numeric-only values (row numbers / blank cells stored as 0)
+        if partner.replace(".", "").lstrip("-").isdigit():
+            skip_no_partner += 1
+            continue
 
         # parse month/year
         raw_m = row_vals[month_idx] if month_idx is not None and month_idx < len(row_vals) else None
@@ -549,21 +553,24 @@ def build_wide_sheets(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict], List[Di
     return actuals, plan, ly, b2b_plan, valid_branches
 
 
-def merge_daily_into_cache(raw_bytes: bytes, valid_branches: Set[str],
+def merge_daily_into_cache(xlsx_path: str, valid_branches: Set[str],
                             b2c_ts: List[Dict], b2b_ts: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
     """
     PHASE 2 (slow): stream B2C Daily and B2B Daily, merge pax/reservations
     into already-cached timeseries. Returns updated lists.
+    Uses a file path (not raw bytes) to avoid a 90MB in-memory BytesIO copy.
+    Closes and reopens the workbook between sheets to free openpyxl row cache.
     """
     import openpyxl
 
-    wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
-
+    # Stream B2C Daily — open, stream, close to free memory before B2B
+    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
     b2c_daily = _stream_b2c_daily(wb, valid_branches)
-    gc.collect()
-    b2b_daily = _stream_b2b_daily(wb)
-    gc.collect()
+    wb.close(); del wb; gc.collect()
 
+    # Stream B2B Daily — fresh workbook to avoid accumulated row cache
+    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+    b2b_daily = _stream_b2b_daily(wb)
     wb.close(); del wb; gc.collect()
 
     if not b2c_daily and not b2b_daily:
