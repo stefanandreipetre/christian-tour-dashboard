@@ -33,6 +33,36 @@ REFRESH_INTERVAL = int(os.getenv("REFRESH_INTERVAL", 3600))
 _load_lock = threading.Lock()
 
 
+import json, os, time as _time
+DISK_CACHE_PATH = "/tmp/ct_timeseries_cache.json"
+DISK_CACHE_MAX_AGE = 3600  # 1 hour
+
+def _save_disk_cache(b2c_ts, b2b_ts):
+    try:
+        payload = {"b2c": b2c_ts, "b2b": b2b_ts, "saved_at": _time.time()}
+        with open(DISK_CACHE_PATH, "w") as f:
+            json.dump(payload, f)
+        logger.info("Disk cache saved: B2C=%d B2B=%d records", len(b2c_ts), len(b2b_ts))
+    except Exception as e:
+        logger.warning("Disk cache save failed: %s", e)
+
+def _load_disk_cache():
+    try:
+        if not os.path.exists(DISK_CACHE_PATH):
+            return None
+        with open(DISK_CACHE_PATH) as f:
+            payload = json.load(f)
+        age = _time.time() - payload.get("saved_at", 0)
+        if age > DISK_CACHE_MAX_AGE:
+            logger.info("Disk cache expired (age=%.0fs > %ds)", age, DISK_CACHE_MAX_AGE)
+            return None
+        logger.info("Disk cache hit (age=%.0fs): B2C=%d B2B=%d records",
+                    age, len(payload["b2c"]), len(payload["b2b"]))
+        return payload["b2c"], payload["b2b"]
+    except Exception as e:
+        logger.warning("Disk cache load failed: %s", e)
+        return None
+
 def load_dashboard() -> None:
     """
     Two-phase build so the cache is populated quickly:
@@ -41,6 +71,15 @@ def load_dashboard() -> None:
     """
     with _load_lock:
         try:
+            # Phase 0: try disk cache (avoids re-download on warm restarts)
+            cached = _load_disk_cache()
+            if cached:
+                b2c_cached, b2b_cached = cached
+                cache.set_data("b2c", None, b2c_cached)
+                cache.set_data("b2b", None, b2b_cached)
+                logger.info("Loaded from disk cache — skipping download")
+                return
+
             # Phase 1: small/wide sheets
             logger.info("Downloading CT Dashboard.xlsx ...")
             raw = sp.download_file()
@@ -68,6 +107,7 @@ def load_dashboard() -> None:
                 cache.set_data("b2b", None, b2b_updated)
                 logger.info("Phase 2 done - B2C: %d  B2B: %d records (with daily)",
                             len(b2c_updated), len(b2b_updated))
+                _save_disk_cache(b2c_updated, b2b_updated)
             except Exception as exc:
                 logger.error("Phase 2 (daily streaming) failed - keeping wide-sheet cache: %s",
                              exc, exc_info=True)
