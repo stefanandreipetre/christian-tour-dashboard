@@ -1,16 +1,16 @@
 """
-Christian Tour Dashboard — data processor
+Christian Tour Dashboard â data processor
 Single source: CT Dashboard.xlsx
 
 Sheet layout:
-  B2C 2026 Actuals  — wide: branch | region | Jan..Dec  (k EUR actuals 2026)
-  P                 — wide: branch | region | Jan..Dec  (k EUR plan 2026)
-  LY                — wide: branch | region | Jan..Dec  (k EUR actuals 2025)
-  B2C Daily         — long: date | branch | pax | reservations | revenue
-  B2B Daily         — long: partner | pax | actuals | month
-  B2B P             — monthly 2026 plan for B2B
+  B2C 2026 Actuals  â wide: branch | region | Jan..Dec  (k EUR actuals 2026)
+  P                 â wide: branch | region | Jan..Dec  (k EUR plan 2026)
+  LY                â wide: branch | region | Jan..Dec  (k EUR actuals 2025)
+  B2C Daily         â long: date | branch | pax | reservations | revenue
+  B2B Daily         â long: partner | pax | actuals | month
+  B2B P             â monthly 2026 plan for B2B
 
-All k-EUR values × 1000 on ingest → stored as EUR.
+All k-EUR values Ã 1000 on ingest â stored as EUR.
 B2C Daily / B2B Daily values assumed to already be in EUR (not k EUR).
 """
 
@@ -46,7 +46,7 @@ STREAM_SHEETS = ["B2C Daily", "B2B Daily"]
 SHEETS_NEEDED = SMALL_SHEETS + STREAM_SHEETS
 
 
-# ─── helpers ───────────────────────────────────────────────────────────────
+# âââ helpers âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def _num(v: Any) -> Optional[float]:
     if v is None:
@@ -55,7 +55,7 @@ def _num(v: Any) -> Optional[float]:
         import math
         return float(v) if not math.isnan(float(v)) else None
     s = str(v).replace(",", ".").replace("\xa0", "").strip()
-    if s in ("", "-", "—", "n/a", "na", "#n/a"):
+    if s in ("", "-", "â", "n/a", "na", "#n/a"):
         return None
     try:
         return float(s)
@@ -146,7 +146,7 @@ def _header_col_idx(header: list, *keywords, exclude: set = None) -> Optional[in
     return None
 
 
-# ─── B2C wide sheets ────────────────────────────────────────────────────────
+# âââ B2C wide sheets ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def parse_b2c_wide_sheet(raw_df: pd.DataFrame, sheet_name: str,
                           field: str, year: int) -> List[Dict]:
@@ -165,7 +165,7 @@ def parse_b2c_wide_sheet(raw_df: pd.DataFrame, sheet_name: str,
             month_map[col] = m
 
     if len(month_map) < 2:
-        logger.warning("%s: only %d month cols — cols: %s",
+        logger.warning("%s: only %d month cols â cols: %s",
                        sheet_name, len(month_map), list(df.columns)[:20])
         return []
 
@@ -193,7 +193,7 @@ def parse_b2c_wide_sheet(raw_df: pd.DataFrame, sheet_name: str,
     return records
 
 
-# ─── B2C Daily (openpyxl streaming) ────────────────────────────────────────
+# âââ B2C Daily (openpyxl streaming) ââââââââââââââââââââââââââââââââââââââââ
 
 def _stream_b2c_daily(wb, valid_branches: Set[str]) -> List[Dict]:
     """
@@ -230,7 +230,7 @@ def _stream_b2c_daily(wb, valid_branches: Set[str]) -> List[Dict]:
                 logger.info("B2C Daily header: date=%s branch=%s pax=%s res=%s rev=%s",
                             date_idx, branch_idx, pax_idx, res_idx, rev_idx)
                 if branch_idx is None or date_idx is None:
-                    logger.warning("B2C Daily: cannot find date/branch columns — skipping")
+                    logger.warning("B2C Daily: cannot find date/branch columns â skipping")
                     return []
             continue
 
@@ -272,7 +272,7 @@ def _stream_b2c_daily(wb, valid_branches: Set[str]) -> List[Dict]:
                 agg[key]["reservations"] += int(v)
         rows_processed += 1
 
-    logger.info("B2C Daily: streamed %d rows → %d (year,month,branch) buckets",
+    logger.info("B2C Daily: streamed %d rows â %d (year,month,branch) buckets",
                 rows_processed, len(agg))
     return [{
         "sheet": "B2C Daily",
@@ -283,7 +283,7 @@ def _stream_b2c_daily(wb, valid_branches: Set[str]) -> List[Dict]:
     } for (yr, mo, branch), vals in agg.items()]
 
 
-# ─── B2B Daily (openpyxl streaming) ────────────────────────────────────────
+# âââ B2B Daily (openpyxl streaming) ââââââââââââââââââââââââââââââââââââââââ
 
 def _stream_b2b_daily(wb) -> List[Dict]:
     """Stream B2B Daily row-by-row from an open openpyxl workbook."""
@@ -308,7 +308,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
                 candidate = [str(v).strip().lower() if v is not None else "" for v in row_vals]
                 c_partner = _header_col_idx(candidate, "partner", "client", "agentie",
                                             "agency", "denumire", "name", "partener")
-                c_month   = _header_col_idx(candidate, "luna", "month", "lună",
+                c_month   = _header_col_idx(candidate, "luna", "month", "lunÄ",
                                             "period", "data", "date")
                 # Only accept row as header if it has BOTH a partner and a month col
                 if c_partner is not None and c_month is not None:
@@ -368,7 +368,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
         if not mo:
             skip_no_month += 1
             if skip_no_month <= 3:
-                logger.warning("B2B Daily: skipping row — cannot parse month from %r (type=%s) partner=%r",
+                logger.warning("B2B Daily: skipping row â cannot parse month from %r (type=%s) partner=%r",
                                raw_m, type(raw_m).__name__, partner)
             continue
 
@@ -386,7 +386,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
     return records
 
 
-# ─── B2B Plan ───────────────────────────────────────────────────────────────
+# âââ B2B Plan âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def parse_b2b_plan(raw_df: pd.DataFrame) -> List[Dict]:
     df = _promote_header(raw_df.copy())
@@ -429,7 +429,7 @@ def parse_b2b_plan(raw_df: pd.DataFrame) -> List[Dict]:
                 if any(k in str(col).lower() for k in kw):
                     return col
             return None
-        month_col   = _fc("luna", "month", "lună", "period", "mon")
+        month_col   = _fc("luna", "month", "lunÄ", "period", "mon")
         plan_col    = _fc("plan", "target", "buget", "budget", "forecast", "value", "valoare")
         partner_col = _fc("partner", "client", "agentie", "denumire", "name")
         for _, row in df.iterrows():
@@ -450,7 +450,7 @@ def parse_b2b_plan(raw_df: pd.DataFrame) -> List[Dict]:
     return records
 
 
-# ─── merge helpers ──────────────────────────────────────────────────────────
+# âââ merge helpers ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def _merge_b2c(actuals, plan, ly, daily) -> List[Dict]:
     key_map: Dict[Tuple, Dict] = {}
@@ -505,7 +505,7 @@ def _merge_b2b(daily, plan) -> List[Dict]:
     return list(key_map.values())
 
 
-# ─── master builder ─────────────────────────────────────────────────────────
+# âââ master builder âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def build_wide_sheets(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict], List[Dict], List[Dict], List[Dict]]:
     """
@@ -526,7 +526,7 @@ def build_wide_sheets(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict], List[Di
         rows = [list(r) for r in wb[sname].iter_rows(values_only=True)]
         df = pd.DataFrame(rows)
         del rows; gc.collect()
-        logger.info("Loaded %s: %d rows × %d cols",
+        logger.info("Loaded %s: %d rows Ã %d cols",
                     sname, len(df), len(df.columns) if not df.empty else 0)
         return df
 
@@ -567,7 +567,7 @@ def _col_letter_to_idx(ref: str) -> int:
 def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
     """
     Stream B2B Daily directly from the xlsx ZIP using iterparse.
-    Avoids loading the full openpyxl workbook — saves ~100MB+ RAM by
+    Avoids loading the full openpyxl workbook â saves ~100MB+ RAM by
     streaming the shared strings and sheet XML element-by-element with
     elem.clear() after each row so memory stays flat.
     """
@@ -586,7 +586,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
     try:
         names = zf.namelist()
 
-        # ── shared strings — iterparse to avoid loading whole XML ────────────
+        # ââ shared strings â iterparse to avoid loading whole XML ââââââââââââ
         shared_strings: List[str] = []
         if "xl/sharedStrings.xml" in names:
             with zf.open("xl/sharedStrings.xml") as f:
@@ -605,7 +605,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                         elem.clear()
             logger.info("B2B Daily direct: %d shared strings loaded", len(shared_strings))
 
-        # ── find B2B Daily sheet path via workbook rels ─────────────────────
+        # ââ find B2B Daily sheet path via workbook rels âââââââââââââââââââââ
         sheet_rid = None
         with zf.open("xl/workbook.xml") as f:
             for event, elem in ET.iterparse(f, events=["end"]):
@@ -634,7 +634,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                     elem.clear()
 
         if not sheet_path or sheet_path not in names:
-            logger.warning("B2B Daily: rels lookup failed (rid=%s path=%s) — trying index fallback",
+            logger.warning("B2B Daily: rels lookup failed (rid=%s path=%s) â trying index fallback",
                            sheet_rid, sheet_path)
             ws_files = sorted(n for n in names if n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))
             sheet_path = ws_files[4] if len(ws_files) >= 5 else (ws_files[-1] if ws_files else None)
@@ -644,7 +644,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
 
         logger.info("B2B Daily direct: parsing %s", sheet_path)
 
-        # ── stream rows with iterparse, elem.clear() after each row ─────────
+        # ââ stream rows with iterparse, elem.clear() after each row âââââââââ
         header = None
         partner_idx = pax_idx = rev_idx = month_idx = year_idx = None
         records: List[Dict] = []
@@ -657,7 +657,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                 if tag != "row":
                     continue
 
-                # Build sparse row: column letter → value
+                # Build sparse row: column letter â value
                 cells: dict = {}
                 for c_elem in elem.findall(f"{{{NS}}}c"):
                     ref = c_elem.get("r", "")
@@ -699,7 +699,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                         candidate = [str(v).strip().lower() if v is not None else "" for v in row_vals]
                         c_partner = _header_col_idx(candidate, "partner", "client", "agentie",
                                                      "agency", "denumire", "name", "partener")
-                        c_month   = _header_col_idx(candidate, "luna", "month", "lună",
+                        c_month   = _header_col_idx(candidate, "luna", "month", "lunÄ",
                                                      "period", "data", "date")
                         if c_partner is not None and c_month is not None:
                             header      = candidate
@@ -766,7 +766,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                     skip_no_month += 1
                     if skip_no_month <= 3:
                         logger.warning(
-                            "B2B Daily direct: skipping row — cannot parse month from %r (type=%s) partner=%r",
+                            "B2B Daily direct: skipping row â cannot parse month from %r (type=%s) partner=%r",
                             raw_m, type(raw_m).__name__, partner)
                     continue
 
@@ -797,55 +797,34 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
 def merge_daily_into_cache(xlsx_path: str, valid_branches: Set[str],
                             b2c_ts: List[Dict], b2b_ts: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
     """
-    PHASE 2 (slow): stream B2C Daily and B2B Daily, merge pax/reservations
-    into already-cached timeseries. Returns updated lists.
-    Uses a file path (not raw bytes) to avoid a 90MB in-memory BytesIO copy.
-    Closes and reopens the workbook between sheets to free openpyxl row cache.
+    PHASE 2 (slow): stream B2B Daily via direct ZIP streamer (no openpyxl, no OOM).
+    B2C actuals are already loaded in Phase 1 from the 'B2C 2026 Actuals' wide sheet.
+    Returns (b2c_ts unchanged, b2b_ts + b2b_daily_records).
     """
-    import openpyxl
-
-    # Stream B2C Daily — open, stream, close to free memory before B2B
-    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
-    b2c_daily = _stream_b2c_daily(wb, valid_branches)
-    wb.close(); del wb; gc.collect()
-
-    # Stream B2B Daily — direct zipfile/iterparse to avoid openpyxl memory overhead
-    b2b_daily = _stream_b2b_daily_direct(xlsx_path)
-    gc.collect()
-
-    if not b2c_daily and not b2b_daily:
-        logger.info("No daily data found — skipping merge")
+    logger.info("Phase 2 starting...")
+    try:
+        b2b_daily = _stream_b2b_daily_direct(xlsx_path)
+        logger.info("Phase 2: streamed %d B2B daily records", len(b2b_daily))
+        if not b2b_daily:
+            logger.warning("Phase 2: no B2B daily records found - returning unchanged caches")
+            return b2c_ts, b2b_ts
+        b2b_updated = b2b_ts + b2b_daily
+        logger.info("Phase 2 done - B2C: %d  B2B: %d records", len(b2c_ts), len(b2b_updated))
+        return b2c_ts, b2b_updated
+    except Exception as e:
+        logger.error("Phase 2 failed: %s", e, exc_info=True)
         return b2c_ts, b2b_ts
-
-    # Extract existing wide-sheet data from already-cached records
-    actuals = [{"sheet": r["sheet"], "year": r["year"], "month": r["month"],
-                "branch": r["branch"], "region": r["region"], "revenue": r.get("revenue")}
-               for r in b2c_ts]
-    plan    = [{"year": r["year"], "month": r["month"], "branch": r["branch"],
-                "region": r["region"], "plan": r.get("plan")} for r in b2c_ts]
-    ly      = [{"year": r["year"], "month": r["month"], "branch": r["branch"],
-                "region": r["region"], "ly": r.get("ly")} for r in b2c_ts]
-    b2b_plan = [{"year": r["year"], "month": r["month"], "agency": r.get("agency"),
-                 "plan": r.get("plan")} for r in b2b_ts]
-
-    b2c_updated = _merge_b2c(actuals, plan, ly, b2c_daily)
-    b2b_daily_recs = [r for r in b2b_ts if r.get("revenue") is not None]
-    b2b_updated = _merge_b2b(b2b_daily_recs + b2b_daily, b2b_plan)
-
-    logger.info("After daily merge — B2C: %d  B2B: %d records", len(b2c_updated), len(b2b_updated))
-    return b2c_updated, b2b_updated
-
 
 def build_dashboard(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict]]:
     """Convenience wrapper: phase 1 only (fast). Phase 2 handled separately in main.py."""
     actuals, plan, ly, b2b_plan, _ = build_wide_sheets(raw_bytes)
     b2c = _merge_b2c(actuals, plan, ly, [])
     b2b = _merge_b2b([], b2b_plan)
-    logger.info("Wide-sheet build — B2C: %d  B2B: %d records", len(b2c), len(b2b))
+    logger.info("Wide-sheet build â B2C: %d  B2B: %d records", len(b2c), len(b2b))
     return b2c, b2b
 
 
-# ─── debug helper ────────────────────────────────────────────────────────────
+# âââ debug helper ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def sheet_raw_rows(raw_bytes: bytes, sheet_name: str, nrows: int = 8) -> dict:
     """Return first nrows of a sheet as plain dicts for the debug endpoint."""
