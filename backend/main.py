@@ -34,7 +34,7 @@ _load_lock = threading.Lock()
 
 
 import json, os, time as _time
-DISK_CACHE_PATH = "/tmp/ct_timeseries_cache.json"
+DISK_CACHE_PATH = "/tmp/ct_timeseries_cache_v2.json"
 DISK_CACHE_MAX_AGE = 3600  # 1 hour
 
 def _save_disk_cache(b2c_ts, b2b_ts):

@@ -66,9 +66,19 @@ def _num(v: Any) -> Optional[float]:
 def _col_to_month(col: Any) -> Optional[int]:
     if isinstance(col, datetime):
         return col.month
+    if isinstance(col, date) and not isinstance(col, datetime):
+        return col.month
     if isinstance(col, int) and 1 <= col <= 12:
         return col
-    s = str(col).strip().lower()[:12]
+    # Excel serial date (openpyxl may return raw int instead of datetime)
+    if isinstance(col, (int, float)) and 45 < col < 100000:
+        try:
+            from datetime import timedelta
+            dt = date(1899, 12, 30) + timedelta(days=int(col))
+            return dt.month
+        except Exception:
+            pass
+    s = str(col).strip().lower()[:15]
     try:
         m = int(float(s))
         if 1 <= m <= 12:
@@ -285,6 +295,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
     header = None
     partner_idx = pax_idx = rev_idx = month_idx = year_idx = None
     records = []
+    skip_no_partner = skip_no_month = 0
     current_year = date.today().year
 
     for row_vals in ws.iter_rows(values_only=True):
@@ -318,6 +329,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
         if partner_idx is not None and partner_idx < len(row_vals) and row_vals[partner_idx] is not None:
             partner = str(row_vals[partner_idx]).strip()
         if not partner or partner.lower() in ("nan", "none", "", "-"):
+            skip_no_partner += 1
             continue
 
         # parse month/year
@@ -345,6 +357,10 @@ def _stream_b2b_daily(wb) -> List[Dict]:
                     yr = int(yv)
 
         if not mo:
+            skip_no_month += 1
+            if skip_no_month <= 3:
+                logger.warning("B2B Daily: skipping row — cannot parse month from %r (type=%s) partner=%r",
+                               raw_m, type(raw_m).__name__, partner)
             continue
 
         rev = _num(row_vals[rev_idx]) if rev_idx is not None and rev_idx < len(row_vals) else None
@@ -357,7 +373,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
             "plan": None, "ly": None,
         })
 
-    logger.info("B2B Daily: %d records", len(records))
+    logger.info("B2B Daily: %d records (skipped: no_partner=%d no_month=%d)", len(records), skip_no_partner, skip_no_month)
     return records
 
 
