@@ -305,24 +305,29 @@ def _stream_b2b_daily(wb) -> List[Dict]:
         if header is None:
             str_count = sum(1 for v in row_vals if isinstance(v, str) and v.strip())
             if str_count >= 2:
-                header = [str(v).strip().lower() if v is not None else "" for v in row_vals]
-                partner_idx = _header_col_idx(header, "partner", "client", "agentie",
-                                              "agency", "denumire", "name", "partener")
-                pax_idx     = _header_col_idx(header, "pax", "pasageri", "persons")
-                rev_idx     = _header_col_idx(header, "valoare", "value", "revenue",
-                                              "vanzari", "actual", "sales",
-                                              "incasat", "eur", "nett", "net",
-                                              "total", "realizat",
-                                              exclude={pax_idx} if pax_idx is not None else None)
-                month_idx   = _header_col_idx(header, "luna", "month", "lună",
-                                              "period", "data", "date")
-                year_idx    = _header_col_idx(header, "year", "an", "anul")
-                logger.info("B2B Daily header: partner=%s pax=%s rev=%s month=%s year=%s | cols=%s",
-                            partner_idx, pax_idx, rev_idx, month_idx, year_idx,
-                            [str(h)[:20] if h else None for h in row_vals[:8]])
-                if partner_idx is None:
-                    logger.warning("B2B Daily: no partner column")
-                    return []
+                candidate = [str(v).strip().lower() if v is not None else "" for v in row_vals]
+                c_partner = _header_col_idx(candidate, "partner", "client", "agentie",
+                                            "agency", "denumire", "name", "partener")
+                c_month   = _header_col_idx(candidate, "luna", "month", "lună",
+                                            "period", "data", "date")
+                # Only accept row as header if it has BOTH a partner and a month col
+                if c_partner is not None and c_month is not None:
+                    header      = candidate
+                    partner_idx = c_partner
+                    pax_idx     = _header_col_idx(header, "pax", "pasageri", "persons")
+                    rev_idx     = _header_col_idx(header, "valoare", "value", "revenue",
+                                                  "vanzari", "actual", "sales",
+                                                  "incasat", "eur", "nett", "net",
+                                                  "total", "realizat",
+                                                  exclude={pax_idx} if pax_idx is not None else None)
+                    month_idx   = c_month
+                    year_idx    = _header_col_idx(header, "year", "an", "anul")
+                    logger.info("B2B Daily header: partner=%s pax=%s rev=%s month=%s year=%s | cols=%s",
+                                partner_idx, pax_idx, rev_idx, month_idx, year_idx,
+                                [str(h)[:20] if h else None for h in row_vals[:8]])
+                else:
+                    logger.info("B2B Daily: skipping non-header row (no partner+month): %s",
+                                [str(v)[:15] for v in row_vals[:6]])
             continue
 
         partner = None
