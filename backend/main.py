@@ -85,10 +85,10 @@ def load_dashboard() -> None:
             raw = sp.download_file()
             logger.info("Downloaded %d bytes - parsing wide sheets ...", len(raw))
 
-            actuals, plan, ly, b2b_plan, valid_branches = dp.build_wide_sheets(raw)
+            actuals, plan, ly, b2b_plan, b2b_ly, valid_branches = dp.build_wide_sheets(raw)
 
             b2c_ts = dp._merge_b2c(actuals, plan, ly, [])
-            b2b_ts = dp._merge_b2b([], b2b_plan)
+            b2b_ts = dp._merge_b2b(b2b_ly, b2b_plan)
 
             cache.set_data("b2c", None, b2c_ts)
             cache.set_data("b2b", None, b2b_ts)
