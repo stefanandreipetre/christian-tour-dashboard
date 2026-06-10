@@ -1,5 +1,5 @@
 """
-Christian Tour Sales Dashboard â FastAPI Backend
+Christian Tour Sales Dashboard — FastAPI Backend
 Single source: CT Dashboard.xlsx (SharePoint)
 Two-phase load:
   Phase 1 (fast): wide sheets -> cache immediately (~2 min)
@@ -34,7 +34,7 @@ _load_lock = threading.Lock()
 
 
 import json, os, time as _time
-DISK_CACHE_PATH = "/tmp/ct_timeseries_cache_v2.json"
+DISK_CACHE_PATH = "/tmp/ct_timeseries_cache_v3.json"
 DISK_CACHE_MAX_AGE = 3600  # 1 hour
 
 def _save_disk_cache(b2c_ts, b2b_ts):
@@ -77,7 +77,7 @@ def load_dashboard() -> None:
                 b2c_cached, b2b_cached = cached
                 cache.set_data("b2c", None, b2c_cached)
                 cache.set_data("b2b", None, b2b_cached)
-                logger.info("Loaded from disk cache â skipping download")
+                logger.info("Loaded from disk cache — skipping download")
                 return
 
             # Phase 1: small/wide sheets
@@ -85,10 +85,10 @@ def load_dashboard() -> None:
             raw = sp.download_file()
             logger.info("Downloaded %d bytes - parsing wide sheets ...", len(raw))
 
-            actuals, plan, ly, b2b_plan, b2b_ly, valid_branches = dp.build_wide_sheets(raw)
+            actuals, plan, ly, b2b_plan, valid_branches = dp.build_wide_sheets(raw)
 
             b2c_ts = dp._merge_b2c(actuals, plan, ly, [])
-            b2b_ts = dp._merge_b2b(b2b_ly, b2b_plan)
+            b2b_ts = dp._merge_b2b([], b2b_plan)
 
             cache.set_data("b2c", None, b2c_ts)
             cache.set_data("b2b", None, b2b_ts)
@@ -278,13 +278,11 @@ def b2b_partners(year: Optional[int] = None, max_month: Optional[int] = None):
 
 @app.get("/api/debug/b2b-cache")
 def debug_b2b_cache():
-    """Return B2B cache stats + stream diagnostic."""
+    """Return first 20 B2B timeseries records from in-memory cache — fast, no re-download."""
     ts = _ts("b2b")
-    daily = [r for r in ts if r.get("sheet") == "B2B Daily"]
+    sample = ts[:20] if ts else []
     return {
         "total_records": len(ts),
-        "daily_records": len(daily),
-        "daily_sample": daily[:10],
-        "non_daily_sample": [r for r in ts if r.get("sheet") != "B2B Daily"][:5],
-        "stream_diag": dp._b2b_stream_diag,
+        "records_with_revenue": sum(1 for r in ts if r.get("revenue") not in (None, 0.0)),
+        "sample": sample,
     }
