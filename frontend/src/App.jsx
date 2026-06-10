@@ -85,7 +85,7 @@ function BranchForecastTable({ data = [], loading }) {
   const Th = ({ label, k }) => (
     <th onClick={() => { if (sortKey === k) setSortAsc(!sortAsc); else { setSortKey(k); setSortAsc(false) } }}
       className="text-right py-2 px-3 text-gray-500 font-medium text-xs cursor-pointer hover:text-ct-navy select-none whitespace-nowrap">
-      {label} {sortKey === k ? (sortAsc ? '↑' : '↓') : '↕'}
+      {label} {sortKey === k ? (sortAsc ? '\u2191' : '\u2193') : '\u2195'}
     </th>
   )
 
@@ -118,13 +118,13 @@ function BranchForecastTable({ data = [], loading }) {
               return (
                 <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                   <td className="py-2 px-3 text-gray-400 text-xs">{i+1}</td>
-                  <td className="py-2 px-3 font-medium text-gray-800">{row.branch || '—'}</td>
+                  <td className="py-2 px-3 font-medium text-gray-800">{row.branch || '\u2014'}</td>
                   <td className="py-2 px-3 text-right font-semibold text-gray-900">{fmtEur(row.revenue)}</td>
                   <td className="py-2 px-3 text-right text-gray-500">{fmtEur(row.ly)}</td>
                   <td className="py-2 px-3 text-right text-gray-500">{fmtEur(row.plan)}</td>
                   <td className="py-2 px-3 text-right">{pctBadge(row.vs_plan_pct)}</td>
                   <td className="py-2 px-3 text-right">{pctBadge(vsLy)}</td>
-                  <td className="py-2 px-3 text-right text-gray-600">{row.pax ? row.pax.toLocaleString('en') : '—'}</td>
+                  <td className="py-2 px-3 text-right text-gray-600">{row.pax ? row.pax.toLocaleString('en') : '\u2014'}</td>
                 </tr>
               )
             })}
@@ -143,8 +143,8 @@ export default function App() {
 
   const [status,         setStatus]         = useState(null)
   const [b2bSummaryData, setB2bSummaryData] = useState(null)
+  const [b2bSumLYData,   setB2bSumLYData]   = useState(null)
   const [b2cSummaryData, setB2cSummaryData] = useState(null)
-  const [b2bSummaryLYData, setB2bSummaryLYData] = useState(null)
   const [agencies,       setAgencies]       = useState([])
   const [agenciesLY,     setAgenciesLY]     = useState([])
   const [b2cBranches,    setB2cBranches]    = useState([])
@@ -163,15 +163,17 @@ export default function App() {
         getB2BAgencies(year - 1, ytdMonth),
         getB2CBranches(year, ytdMonth),
       ])
-      if (st.status     === 'fulfilled') setStatus(st.value)
-      if (b2bSum.status === 'fulfilled') setB2bSummaryData(b2bSum.value)
-      if (b2cSum.status === 'fulfilled') setB2cSummaryData(b2cSum.value)
-      if (ag.status     === 'fulfilled') setAgencies(ag.value)
-      if (agLY.status   === 'fulfilled') setAgenciesLY(agLY.value)
-      if (b2cBr.status  === 'fulfilled') setB2cBranches(b2cBr.value)
+      if (st.status       === 'fulfilled') setStatus(st.value)
+      if (b2bSum.status   === 'fulfilled') setB2bSummaryData(b2bSum.value)
+      if (b2cSum.status   === 'fulfilled') setB2cSummaryData(b2cSum.value)
+      if (b2bSumLY.status === 'fulfilled') setB2bSumLYData(b2bSumLY.value)
+      if (ag.status       === 'fulfilled') setAgencies(ag.value)
+      if (agLY.status     === 'fulfilled') setAgenciesLY(agLY.value)
+      if (b2cBr.status    === 'fulfilled') setB2cBranches(b2cBr.value)
     } catch (e) { setError(e.message) }
     finally { setLoading(false) }
   }, [year, ytdMonth])
+
   useEffect(() => { fetchAll() }, [fetchAll])
   useEffect(() => {
     const id = setInterval(fetchAll, 5 * 60 * 1000)
@@ -182,35 +184,36 @@ export default function App() {
     ? Math.max(status.b2c?.updated_at || 0, status.b2b?.updated_at || 0)
     : null
 
-  // YTD-filtered summaries (Jan..ytdMonth only)
   const b2bSummary = aggregateSummary(b2bSummaryData, ytdMonth)
   const b2cSummary = aggregateSummary(b2cSummaryData, ytdMonth)
 
-  // Combined totals
   const combinedRevenue   = (b2bSummary?.revenue || 0) + (b2cSummary?.revenue || 0)
   const combinedPlan      = (b2bSummary?.plan    || 0) + (b2cSummary?.plan    || 0)
   const combinedPAX       = (b2bSummary?.pax     || 0) + (b2cSummary?.pax     || 0)
   const combinedVsPlanPct = combinedPlan ? +((combinedRevenue / combinedPlan) * 100).toFixed(1) : null
   const ytdLabel = `Ian - ${MN[ytdMonth - 1]} ${year}`
 
-  // Full-year chart rows (not YTD-filtered — chart always shows all months)
   const b2cChartRows = toChartRows(b2cSummaryData, ytdMonth)
-  const b2bChartRows = toChartRows(b2bSummaryData, ytdMonth)
 
-  // B2B LY from previous-year actuals
-const b2bLYChartRows = toChartRows(b2bSummaryLYData, ytdMonth)
-// Combined chart: sum B2B + B2C per month
+  const b2bSumLYMap = {}
+  if (Array.isArray(b2bSumLYData)) {
+    b2bSumLYData.forEach(r => { if (r.month) b2bSumLYMap[r.month] = r.revenue || 0 })
+  }
+  const b2bChartRows = toChartRows(b2bSummaryData, ytdMonth).map(r => ({
+    ...r,
+    revenueLY: b2bSumLYMap[r.month] != null ? b2bSumLYMap[r.month] : (r.revenueLY ?? null),
+  }))
+
   const combinedChartRows = b2cChartRows.map(r => {
     const b2b = b2bChartRows.find(x => x.month === r.month) || {}
     return {
       ...r,
       revenue:   (r.revenue   || 0) + (b2b.revenue   || 0),
       plan:      (r.plan      || 0) + (b2b.plan      || 0),
-      revenueLY: (r.revenueLY || 0) + (b2bLY.revenue || 0),
+      revenueLY: (r.revenueLY || 0) + (b2b.revenueLY || 0),
     }
   })
 
-  // Agencies with LY comparison
   const agenciesWithLY = agencies.map(a => {
     const ly = agenciesLY.find(x => x.agency === a.agency)
     const lyRev = ly?.revenue ?? null
@@ -223,7 +226,6 @@ const b2bLYChartRows = toChartRows(b2bSummaryLYData, ytdMonth)
       <Header year={year} setYear={setYear} lastUpdated={lastUpdated} onRefresh={fetchAll} />
       <StatusBanner status={status} />
 
-      {/* Tab bar + YTD selector */}
       <div className="max-w-screen-2xl mx-auto px-6 mt-6 flex items-center justify-between flex-wrap gap-4">
         <div className="flex gap-1 bg-white rounded-xl p-1 shadow-sm border border-gray-100 w-fit flex-wrap">
           {TABS.map(t => (
@@ -245,27 +247,26 @@ const b2bLYChartRows = toChartRows(b2bSummaryLYData, ytdMonth)
           </div>
         )}
 
-        {/* ── OVERVIEW ──────────────────────────────────────────────────────── */}
         {tab === 'overview' && (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard title="Plan YTD (B2B+B2C)" value={combinedPlan}
-                deltaLabel={ytdLabel} icon="📋" color="navy" loading={loading} />
+                deltaLabel={ytdLabel} icon="\ud83d\udccb" color="navy" loading={loading} />
               <KPICard title="Actual YTD (B2B+B2C)" value={combinedRevenue}
                 delta={b2cSummary?.vs_ly_pct} deltaLabel={`vs ${year - 1}`}
-                icon="🌐" color="orange" loading={loading} />
+                icon="\ud83c\udf10" color="orange" loading={loading} />
               <KPICard title="PAX Total (B2B+B2C)" value={combinedPAX}
-                valueType="int" icon="🎫" color="green" loading={loading} />
+                valueType="int" icon="\ud83c\udfab" color="green" loading={loading} />
               <KPICard title="% Realizare Plan" value={combinedVsPlanPct}
                 valueType="pct" deltaLabel={ytdLabel}
-                icon="🎯" color="purple" loading={loading} />
+                icon="\ud83c\udfaf" color="purple" loading={loading} />
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
               <div className="xl:col-span-2">
                 <RevenueChart
                   data={combinedChartRows}
-                  title={`Total B2B+B2C — Actual ${year} vs ${year-1} vs Plan`}
+                  title={`Total B2B+B2C \u2014 Actual ${year} vs ${year-1} vs Plan`}
                   showLY showPlan
                   revenueLabel={`Actual ${year} (B2B+B2C)`}
                   lyLabel={`Actual ${year-1} (B2B+B2C)`}
@@ -284,25 +285,24 @@ const b2bLYChartRows = toChartRows(b2bSummaryLYData, ytdMonth)
           </>
         )}
 
-        {/* ── B2B ───────────────────────────────────────────────────────────── */}
         {tab === 'b2b' && (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard title="Plan B2B YTD" value={b2bSummary?.plan}
-                deltaLabel={ytdLabel} icon="📋" color="navy" loading={loading} />
+                deltaLabel={ytdLabel} icon="\ud83d\udccb" color="navy" loading={loading} />
               <KPICard title="Actual B2B YTD" value={b2bSummary?.revenue}
                 delta={b2bSummary?.vs_ly_pct} deltaLabel={`vs ${year-1}`}
-                icon="💼" color="orange" loading={loading} />
+                icon="\ud83d\udcbc" color="orange" loading={loading} />
               <KPICard title="PAX B2B" value={b2bSummary?.pax}
-                valueType="int" icon="🎫" color="green" loading={loading} />
+                valueType="int" icon="\ud83c\udfab" color="green" loading={loading} />
               <KPICard title="% Realizare Plan B2B" value={b2bSummary?.vs_plan_pct}
                 valueType="pct" deltaLabel={ytdLabel}
-                icon="🎯" color="purple" loading={loading} />
+                icon="\ud83c\udfaf" color="purple" loading={loading} />
             </div>
 
             <RevenueChart
               data={b2bChartRows}
-              title={`B2B — Actual ${year} vs ${year-1} vs Plan`}
+              title={`B2B \u2014 Actual ${year} vs ${year-1} vs Plan`}
               showLY showPlan
               revenueLabel={`Actual ${year}`}
               lyLabel={`Actual ${year-1}`}
@@ -319,25 +319,24 @@ const b2bLYChartRows = toChartRows(b2bSummaryLYData, ytdMonth)
           </>
         )}
 
-        {/* ── B2C ───────────────────────────────────────────────────────────── */}
         {tab === 'b2c' && (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard title="Plan B2C YTD" value={b2cSummary?.plan}
-                deltaLabel={ytdLabel} icon="📋" color="navy" loading={loading} />
+                deltaLabel={ytdLabel} icon="\ud83d\udccb" color="navy" loading={loading} />
               <KPICard title="Actual B2C YTD" value={b2cSummary?.revenue}
                 delta={b2cSummary?.vs_ly_pct} deltaLabel={`vs ${year-1}`}
-                icon="🌐" color="orange" loading={loading} />
+                icon="\ud83c\udf10" color="orange" loading={loading} />
               <KPICard title="PAX B2C" value={b2cSummary?.pax}
-                valueType="int" icon="🎫" color="green" loading={loading} />
+                valueType="int" icon="\ud83c\udfab" color="green" loading={loading} />
               <KPICard title="% Realizare Plan B2C" value={b2cSummary?.vs_plan_pct}
                 valueType="pct" deltaLabel={ytdLabel}
-                icon="🎯" color="purple" loading={loading} />
+                icon="\ud83c\udfaf" color="purple" loading={loading} />
             </div>
 
             <RevenueChart
               data={b2cChartRows}
-              title={`B2C / Site — Actual ${year} vs ${year-1} vs Plan`}
+              title={`B2C / Site \u2014 Actual ${year} vs ${year-1} vs Plan`}
               showLY showPlan
               revenueLabel={`Actual ${year}`}
               lyLabel={`Actual ${year-1}`}
@@ -357,7 +356,7 @@ const b2bLYChartRows = toChartRows(b2bSummaryLYData, ytdMonth)
 
       <footer className="border-t border-gray-200 bg-white mt-8 py-4">
         <div className="max-w-screen-2xl mx-auto px-6 flex items-center justify-between text-xs text-gray-400 flex-wrap gap-2">
-          <span>© {new Date().getFullYear()} Christian Tour — Sales Dashboard</span>
+          <span>\u00a9 {new Date().getFullYear()} Christian Tour \u2014 Sales Dashboard</span>
           <span>Date actualizate automat la fiecare ora din SharePoint</span>
         </div>
       </footer>
