@@ -450,7 +450,69 @@ def parse_b2b_plan(raw_df: pd.DataFrame) -> List[Dict]:
     return records
 
 
-# âââ merge helpers ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# âââ 
+
+def parse_b2b_ly(raw_df: pd.DataFrame, year: int) -> List[Dict]:
+    """Parse B2B LY sheet — same wide format as B2B P but stored as revenue for given year."""
+    df = _promote_header(raw_df.copy())
+    if df.empty:
+        return []
+
+    month_map: Dict[str, int] = {}
+    for col in df.columns:
+        m = _col_to_month(col)
+        if m:
+            month_map[col] = m
+
+    records = []
+
+    if len(month_map) >= 2:
+        def _fc(*kw):
+            for col in df.columns:
+                if any(k in str(col).lower() for k in kw):
+                    return col
+            return None
+        partner_col = _fc("partner", "client", "agentie", "denumire", "name", "partener")
+        for _, row in df.iterrows():
+            partner = str(row[partner_col]).strip() if partner_col and pd.notna(row.get(partner_col)) else "TOTAL"
+            if partner.lower() in ("nan", "none", ""):
+                partner = "TOTAL"
+            for col, m in month_map.items():
+                v = _num(row.get(col))
+                if v is None:
+                    continue
+                records.append({
+                    "sheet": "B2B LY", "year": year, "month": m,
+                    "agency": partner, "revenue": round(v * K_EUR, 2),
+                    "plan": None, "ly": None, "pax": None,
+                })
+    else:
+        def _fc(*kw):
+            for col in df.columns:
+                if any(k in str(col).lower() for k in kw):
+                    return col
+            return None
+        month_col   = _fc("luna", "month", "lun\u0103", "period", "mon")
+        val_col     = _fc("ly", "actual", "realizat", "value", "valoare", "revenue", "vanzari")
+        partner_col = _fc("partner", "client", "agentie", "denumire", "name")
+        for _, row in df.iterrows():
+            mo = _col_to_month(row.get(month_col)) if month_col else None
+            if not mo:
+                continue
+            v = _num(row.get(val_col)) if val_col else None
+            if v is None:
+                continue
+            partner = str(row[partner_col]).strip() if partner_col and pd.notna(row.get(partner_col)) else "TOTAL"
+            records.append({
+                "sheet": "B2B LY", "year": year, "month": mo,
+                "agency": partner, "revenue": round(v * K_EUR, 2),
+                "plan": None, "ly": None, "pax": None,
+            })
+
+    logger.info("B2B LY: %d records (year=%d)", len(records), year)
+    return records
+
+merge helpers ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def _merge_b2c(actuals, plan, ly, daily) -> List[Dict]:
     key_map: Dict[Tuple, Dict] = {}
@@ -546,11 +608,15 @@ def build_wide_sheets(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict], List[Di
     b2b_plan = parse_b2b_plan(b2b_plan_df)
     del b2b_plan_df; gc.collect()
 
+    b2b_ly_df = _load_df("B2B LY")
+    b2b_ly = parse_b2b_ly(b2b_ly_df, current_year - 1)
+    del b2b_ly_df; gc.collect()
+
     wb.close(); del wb; gc.collect()
 
     valid_branches: Set[str] = {r["branch"] for r in actuals + plan + ly if r.get("branch")}
     logger.info("Valid B2C branches: %d", len(valid_branches))
-    return actuals, plan, ly, b2b_plan, valid_branches
+    return actuals, plan, ly, b2b_plan, b2b_ly, valid_branches
 
 
 
