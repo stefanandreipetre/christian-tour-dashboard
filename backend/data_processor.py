@@ -885,9 +885,9 @@ def merge_daily_into_cache(xlsx_path: str, valid_branches: Set[str],
 
 def build_dashboard(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict]]:
     """Convenience wrapper: phase 1 only (fast). Phase 2 handled separately in main.py."""
-    actuals, plan, ly, b2b_plan, _ = build_wide_sheets(raw_bytes)
+    actuals, plan, ly, b2b_plan, b2b_ly, _ = build_wide_sheets(raw_bytes)
     b2c = _merge_b2c(actuals, plan, ly, [])
-    b2b = _merge_b2b([], b2b_plan)
+    b2b = _merge_b2b(b2b_ly, b2b_plan)
     logger.info("Wide-sheet build â B2C: %d  B2B: %d records", len(b2c), len(b2b))
     return b2c, b2b
 
