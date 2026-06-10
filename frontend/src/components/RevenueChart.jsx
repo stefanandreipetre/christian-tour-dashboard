@@ -62,10 +62,10 @@ export default function RevenueChart({ data = [], title, note, revenueLabel, lyL
           />
 
           {hasLY && (
-            <Bar dataKey="revenueLY" name={lyLabel || "An anterior"} fill={COLORS.revenueLY} radius={[3, 3, 0, 0]} maxBarSize={28} opacity={0.7} />
+            <Bar dataKey="revenueLY" name={lyLabel || "An anterior"} fill={COLORS.revenueLY} radius={[3, 3, 0, 0]} maxBarSize={28} opacity={0.7} isAnimationActive={false} />
           )}
 
-          <Bar dataKey="revenue" name={revenueLabel || "Vânzări actuale"} fill={COLORS.revenue} radius={[4, 4, 0, 0]} maxBarSize={32} />
+          <Bar dataKey="revenue" name={revenueLabel || "Vânzări actuale"} fill={COLORS.revenue} radius={[4, 4, 0, 0]} maxBarSize={32} isAnimationActive={false} />
 
           {hasPlan && (
             <Line dataKey="plan" name="Plan" stroke={COLORS.plan} strokeWidth={2} dot={{ r: 3, fill: COLORS.plan }} strokeDasharray="5 3" />
@@ -77,4 +77,4 @@ export default function RevenueChart({ data = [], title, note, revenueLabel, lyL
       </ResponsiveContainer>
     </div>
   )
-}
+            }
