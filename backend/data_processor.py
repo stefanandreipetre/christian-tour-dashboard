@@ -1,16 +1,16 @@
 """
-Christian Tour Dashboard Ã¢ÂÂ data processor
+Christian Tour Dashboard ÃÂ¢ÃÂÃÂ data processor
 Single source: CT Dashboard.xlsx
 
 Sheet layout:
-  B2C 2026 Actuals  Ã¢ÂÂ wide: branch | region | Jan..Dec  (k EUR actuals 2026)
-  P                 Ã¢ÂÂ wide: branch | region | Jan..Dec  (k EUR plan 2026)
-  LY                Ã¢ÂÂ wide: branch | region | Jan..Dec  (k EUR actuals 2025)
-  B2C Daily         Ã¢ÂÂ long: date | branch | pax | reservations | revenue
-  B2B Daily         Ã¢ÂÂ long: partner | pax | actuals | month
-  B2B P             Ã¢ÂÂ monthly 2026 plan for B2B
+  B2C 2026 Actuals  ÃÂ¢ÃÂÃÂ wide: branch | region | Jan..Dec  (k EUR actuals 2026)
+  P                 ÃÂ¢ÃÂÃÂ wide: branch | region | Jan..Dec  (k EUR plan 2026)
+  LY                ÃÂ¢ÃÂÃÂ wide: branch | region | Jan..Dec  (k EUR actuals 2025)
+  B2C Daily         ÃÂ¢ÃÂÃÂ long: date | branch | pax | reservations | revenue
+  B2B Daily         ÃÂ¢ÃÂÃÂ long: partner | pax | actuals | month
+  B2B P             ÃÂ¢ÃÂÃÂ monthly 2026 plan for B2B
 
-All k-EUR values ÃÂ 1000 on ingest Ã¢ÂÂ stored as EUR.
+All k-EUR values ÃÂÃÂ 1000 on ingest ÃÂ¢ÃÂÃÂ stored as EUR.
 B2C Daily / B2B Daily values assumed to already be in EUR (not k EUR).
 """
 
@@ -46,7 +46,7 @@ STREAM_SHEETS = ["B2C Daily", "B2B Daily"]
 SHEETS_NEEDED = SMALL_SHEETS + STREAM_SHEETS
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ helpers Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ helpers ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 
 def _num(v: Any) -> Optional[float]:
     if v is None:
@@ -55,7 +55,7 @@ def _num(v: Any) -> Optional[float]:
         import math
         return float(v) if not math.isnan(float(v)) else None
     s = str(v).replace(",", ".").replace("\xa0", "").strip()
-    if s in ("", "-", "Ã¢ÂÂ", "n/a", "na", "#n/a"):
+    if s in ("", "-", "ÃÂ¢ÃÂÃÂ", "n/a", "na", "#n/a"):
         return None
     try:
         return float(s)
@@ -146,7 +146,7 @@ def _header_col_idx(header: list, *keywords, exclude: set = None) -> Optional[in
     return None
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ B2C wide sheets Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ B2C wide sheets ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 
 def parse_b2c_wide_sheet(raw_df: pd.DataFrame, sheet_name: str,
                           field: str, year: int) -> List[Dict]:
@@ -165,7 +165,7 @@ def parse_b2c_wide_sheet(raw_df: pd.DataFrame, sheet_name: str,
             month_map[col] = m
 
     if len(month_map) < 2:
-        logger.warning("%s: only %d month cols Ã¢ÂÂ cols: %s",
+        logger.warning("%s: only %d month cols ÃÂ¢ÃÂÃÂ cols: %s",
                        sheet_name, len(month_map), list(df.columns)[:20])
         return []
 
@@ -193,7 +193,7 @@ def parse_b2c_wide_sheet(raw_df: pd.DataFrame, sheet_name: str,
     return records
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ B2C Daily (openpyxl streaming) Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ B2C Daily (openpyxl streaming) ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 
 def _stream_b2c_daily(wb, valid_branches: Set[str]) -> List[Dict]:
     """
@@ -230,7 +230,7 @@ def _stream_b2c_daily(wb, valid_branches: Set[str]) -> List[Dict]:
                 logger.info("B2C Daily header: date=%s branch=%s pax=%s res=%s rev=%s",
                             date_idx, branch_idx, pax_idx, res_idx, rev_idx)
                 if branch_idx is None or date_idx is None:
-                    logger.warning("B2C Daily: cannot find date/branch columns Ã¢ÂÂ skipping")
+                    logger.warning("B2C Daily: cannot find date/branch columns ÃÂ¢ÃÂÃÂ skipping")
                     return []
             continue
 
@@ -272,7 +272,7 @@ def _stream_b2c_daily(wb, valid_branches: Set[str]) -> List[Dict]:
                 agg[key]["reservations"] += int(v)
         rows_processed += 1
 
-    logger.info("B2C Daily: streamed %d rows Ã¢ÂÂ %d (year,month,branch) buckets",
+    logger.info("B2C Daily: streamed %d rows ÃÂ¢ÃÂÃÂ %d (year,month,branch) buckets",
                 rows_processed, len(agg))
     return [{
         "sheet": "B2C Daily",
@@ -283,7 +283,7 @@ def _stream_b2c_daily(wb, valid_branches: Set[str]) -> List[Dict]:
     } for (yr, mo, branch), vals in agg.items()]
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ B2B Daily (openpyxl streaming) Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ B2B Daily (openpyxl streaming) ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 
 def _stream_b2b_daily(wb) -> List[Dict]:
     """Stream B2B Daily row-by-row from an open openpyxl workbook."""
@@ -308,7 +308,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
                 candidate = [str(v).strip().lower() if v is not None else "" for v in row_vals]
                 c_partner = _header_col_idx(candidate, "partner", "client", "agentie",
                                             "agency", "denumire", "name", "partener")
-                c_month   = _header_col_idx(candidate, "luna", "month", "lunÃÂ",
+                c_month   = _header_col_idx(candidate, "luna", "month", "lunÃÂÃÂ",
                                             "period", "data", "date")
                 # Only accept row as header if it has BOTH a partner and a month col
                 if c_partner is not None and c_month is not None:
@@ -325,6 +325,13 @@ def _stream_b2b_daily(wb) -> List[Dict]:
                     logger.info("B2B Daily header: partner=%s pax=%s rev=%s month=%s year=%s | cols=%s",
                                 partner_idx, pax_idx, rev_idx, month_idx, year_idx,
                                 [str(h)[:20] if h else None for h in row_vals[:8]])
+                # User-confirmed fixed layout: A=partner, B=pax, C=value, D=date
+                partner_idx = 0
+                pax_idx     = 1
+                rev_idx     = 2
+                month_idx   = 3
+                year_idx    = None
+                logger.info("B2B Daily: overriding to fixed cols A=partner B=pax C=rev D=date")
                 else:
                     logger.info("B2B Daily: skipping non-header row (no partner+month): %s",
                                 [str(v)[:15] for v in row_vals[:6]])
@@ -348,7 +355,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
         if isinstance(raw_m, (datetime, date)):
             mo, yr = raw_m.month, raw_m.year
         elif isinstance(raw_m, (int, float)) and 45 < raw_m < 100000:
-            # Excel serial date — extract BOTH month and year
+            # Excel serial date â extract BOTH month and year
             try:
                 _dt = date(1899, 12, 30) + timedelta(days=int(raw_m))
                 mo, yr = _dt.month, _dt.year
@@ -375,7 +382,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
         if not mo:
             skip_no_month += 1
             if skip_no_month <= 3:
-                logger.warning("B2B Daily: skipping row Ã¢ÂÂ cannot parse month from %r (type=%s) partner=%r",
+                logger.warning("B2B Daily: skipping row ÃÂ¢ÃÂÃÂ cannot parse month from %r (type=%s) partner=%r",
                                raw_m, type(raw_m).__name__, partner)
             continue
 
@@ -393,7 +400,7 @@ def _stream_b2b_daily(wb) -> List[Dict]:
     return records
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ B2B Plan Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ B2B Plan ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 
 def parse_b2b_plan(raw_df: pd.DataFrame) -> List[Dict]:
     df = _promote_header(raw_df.copy())
@@ -436,7 +443,7 @@ def parse_b2b_plan(raw_df: pd.DataFrame) -> List[Dict]:
                 if any(k in str(col).lower() for k in kw):
                     return col
             return None
-        month_col   = _fc("luna", "month", "lunÃÂ", "period", "mon")
+        month_col   = _fc("luna", "month", "lunÃÂÃÂ", "period", "mon")
         plan_col    = _fc("plan", "target", "buget", "budget", "forecast", "value", "valoare")
         partner_col = _fc("partner", "client", "agentie", "denumire", "name")
         for _, row in df.iterrows():
@@ -459,10 +466,10 @@ def parse_b2b_plan(raw_df: pd.DataFrame) -> List[Dict]:
 
 
 
-# âââ B2B LY âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ B2B LY Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 def parse_b2b_ly(raw_df: pd.DataFrame, year: int) -> List[Dict]:
-    """Parse B2B LY sheet â same wide format as B2B P but stored as revenue for given year."""
+    """Parse B2B LY sheet Ã¢ÂÂ same wide format as B2B P but stored as revenue for given year."""
     df = _promote_header(raw_df.copy())
     if df.empty:
         return []
@@ -521,7 +528,7 @@ def parse_b2b_ly(raw_df: pd.DataFrame, year: int) -> List[Dict]:
     logger.info("B2B LY: %d records (year=%d)", len(records), year)
     return records
 
-# âââ merge helpers Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ merge helpers ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 
 def _merge_b2c(actuals, plan, ly, daily) -> List[Dict]:
     key_map: Dict[Tuple, Dict] = {}
@@ -576,7 +583,7 @@ def _merge_b2b(daily, plan) -> List[Dict]:
     return list(key_map.values())
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ master builder Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ master builder ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 
 def build_wide_sheets(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict], List[Dict], List[Dict], List[Dict]]:
     """
@@ -597,7 +604,7 @@ def build_wide_sheets(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict], List[Di
         rows = [list(r) for r in wb[sname].iter_rows(values_only=True)]
         df = pd.DataFrame(rows)
         del rows; gc.collect()
-        logger.info("Loaded %s: %d rows ÃÂ %d cols",
+        logger.info("Loaded %s: %d rows ÃÂÃÂ %d cols",
                     sname, len(df), len(df.columns) if not df.empty else 0)
         return df
 
@@ -642,7 +649,7 @@ def _col_letter_to_idx(ref: str) -> int:
 def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
     """
     Stream B2B Daily directly from the xlsx ZIP using iterparse.
-    Avoids loading the full openpyxl workbook Ã¢ÂÂ saves ~100MB+ RAM by
+    Avoids loading the full openpyxl workbook ÃÂ¢ÃÂÃÂ saves ~100MB+ RAM by
     streaming the shared strings and sheet XML element-by-element with
     elem.clear() after each row so memory stays flat.
     """
@@ -661,7 +668,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
     try:
         names = zf.namelist()
 
-        # Ã¢ÂÂÃ¢ÂÂ shared strings Ã¢ÂÂ iterparse to avoid loading whole XML Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+        # ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ shared strings ÃÂ¢ÃÂÃÂ iterparse to avoid loading whole XML ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
         shared_strings: List[str] = []
         if "xl/sharedStrings.xml" in names:
             with zf.open("xl/sharedStrings.xml") as f:
@@ -680,7 +687,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                         elem.clear()
             logger.info("B2B Daily direct: %d shared strings loaded", len(shared_strings))
 
-        # Ã¢ÂÂÃ¢ÂÂ find B2B Daily sheet path via workbook rels Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+        # ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ find B2B Daily sheet path via workbook rels ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
         sheet_rid = None
         with zf.open("xl/workbook.xml") as f:
             for event, elem in ET.iterparse(f, events=["end"]):
@@ -709,7 +716,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                     elem.clear()
 
         if not sheet_path or sheet_path not in names:
-            logger.warning("B2B Daily: rels lookup failed (rid=%s path=%s) Ã¢ÂÂ trying index fallback",
+            logger.warning("B2B Daily: rels lookup failed (rid=%s path=%s) ÃÂ¢ÃÂÃÂ trying index fallback",
                            sheet_rid, sheet_path)
             ws_files = sorted(n for n in names if n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))
             sheet_path = ws_files[4] if len(ws_files) >= 5 else (ws_files[-1] if ws_files else None)
@@ -719,7 +726,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
 
         logger.info("B2B Daily direct: parsing %s", sheet_path)
 
-        # Ã¢ÂÂÃ¢ÂÂ stream rows with iterparse, elem.clear() after each row Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+        # ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ stream rows with iterparse, elem.clear() after each row ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
         header = None
         partner_idx = pax_idx = rev_idx = month_idx = year_idx = None
         records: List[Dict] = []
@@ -732,7 +739,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                 if tag != "row":
                     continue
 
-                # Build sparse row: column letter Ã¢ÂÂ value
+                # Build sparse row: column letter ÃÂ¢ÃÂÃÂ value
                 cells: dict = {}
                 for c_elem in elem.findall(f"{{{NS}}}c"):
                     ref = c_elem.get("r", "")
@@ -774,7 +781,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                         candidate = [str(v).strip().lower() if v is not None else "" for v in row_vals]
                         c_partner = _header_col_idx(candidate, "partner", "client", "agentie",
                                                      "agency", "denumire", "name", "partener")
-                        c_month   = _header_col_idx(candidate, "luna", "month", "lunÃÂ",
+                        c_month   = _header_col_idx(candidate, "luna", "month", "lunÃÂÃÂ",
                                                      "period", "data", "date")
                         if c_partner is not None and c_month is not None:
                             header      = candidate
@@ -841,7 +848,7 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                     skip_no_month += 1
                     if skip_no_month <= 3:
                         logger.warning(
-                            "B2B Daily direct: skipping row Ã¢ÂÂ cannot parse month from %r (type=%s) partner=%r",
+                            "B2B Daily direct: skipping row ÃÂ¢ÃÂÃÂ cannot parse month from %r (type=%s) partner=%r",
                             raw_m, type(raw_m).__name__, partner)
                     continue
 
@@ -895,11 +902,11 @@ def build_dashboard(raw_bytes: bytes) -> Tuple[List[Dict], List[Dict]]:
     actuals, plan, ly, b2b_plan, b2b_ly, _ = build_wide_sheets(raw_bytes)
     b2c = _merge_b2c(actuals, plan, ly, [])
     b2b = _merge_b2b(b2b_ly, b2b_plan)
-    logger.info("Wide-sheet build Ã¢ÂÂ B2C: %d  B2B: %d records", len(b2c), len(b2b))
+    logger.info("Wide-sheet build ÃÂ¢ÃÂÃÂ B2C: %d  B2B: %d records", len(b2c), len(b2b))
     return b2c, b2b
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ debug helper Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ debug helper ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 
 def sheet_raw_rows(raw_bytes: bytes, sheet_name: str, nrows: int = 8) -> dict:
     """Return first nrows of a sheet as plain dicts for the debug endpoint."""
