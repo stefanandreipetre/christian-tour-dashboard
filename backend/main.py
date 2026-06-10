@@ -1,5 +1,5 @@
 """
-Christian Tour Sales Dashboard — FastAPI Backend
+Christian Tour Sales Dashboard â FastAPI Backend
 Single source: CT Dashboard.xlsx (SharePoint)
 Two-phase load:
   Phase 1 (fast): wide sheets -> cache immediately (~2 min)
@@ -77,7 +77,7 @@ def load_dashboard() -> None:
                 b2c_cached, b2b_cached = cached
                 cache.set_data("b2c", None, b2c_cached)
                 cache.set_data("b2b", None, b2b_cached)
-                logger.info("Loaded from disk cache — skipping download")
+                logger.info("Loaded from disk cache â skipping download")
                 return
 
             # Phase 1: small/wide sheets
@@ -278,11 +278,13 @@ def b2b_partners(year: Optional[int] = None, max_month: Optional[int] = None):
 
 @app.get("/api/debug/b2b-cache")
 def debug_b2b_cache():
-    """Return first 20 B2B timeseries records from in-memory cache — fast, no re-download."""
+    """Return B2B cache stats + stream diagnostic."""
     ts = _ts("b2b")
-    sample = ts[:20] if ts else []
+    daily = [r for r in ts if r.get("sheet") == "B2B Daily"]
     return {
         "total_records": len(ts),
-        "records_with_revenue": sum(1 for r in ts if r.get("revenue") not in (None, 0.0)),
-        "sample": sample,
+        "daily_records": len(daily),
+        "daily_sample": daily[:10],
+        "non_daily_sample": [r for r in ts if r.get("sheet") != "B2B Daily"][:5],
+        "stream_diag": dp._b2b_stream_diag,
     }
