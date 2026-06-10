@@ -325,13 +325,6 @@ def _stream_b2b_daily(wb) -> List[Dict]:
                     logger.info("B2B Daily header: partner=%s pax=%s rev=%s month=%s year=%s | cols=%s",
                                 partner_idx, pax_idx, rev_idx, month_idx, year_idx,
                                 [str(h)[:20] if h else None for h in row_vals[:8]])
-                # User-confirmed fixed layout: A=partner, B=pax, C=value, D=date
-                partner_idx = 0
-                pax_idx     = 1
-                rev_idx     = 2
-                month_idx   = 3
-                year_idx    = None
-                logger.info("B2B Daily: overriding to fixed cols A=partner B=pax C=rev D=date")
                 else:
                     logger.info("B2B Daily: skipping non-header row (no partner+month): %s",
                                 [str(v)[:15] for v in row_vals[:6]])
@@ -798,6 +791,13 @@ def _stream_b2b_daily_direct(xlsx_path: str) -> List[Dict]:
                                 "B2B Daily direct header: partner=%s pax=%s rev=%s month=%s | cols=%s",
                                 partner_idx, pax_idx, rev_idx, month_idx,
                                 [str(h)[:20] if h else None for h in row_vals[:8]])
+                            # User-confirmed fixed layout: A=partner, B=pax, C=value, D=date
+                            partner_idx = 0
+                            pax_idx     = 1
+                            rev_idx     = 2
+                            month_idx   = 3
+                            year_idx    = None
+                            logger.info("B2B Daily direct: overriding to fixed cols A=partner B=pax C=rev D=date")
                         else:
                             logger.info("B2B Daily direct: skipping non-header row: %s",
                                         [str(v)[:15] for v in row_vals[:6]])
