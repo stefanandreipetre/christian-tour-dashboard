@@ -251,15 +251,15 @@ export default function App() {
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard title="Plan YTD (B2B+B2C)" value={combinedPlan}
-                deltaLabel={ytdLabel} icon="📋" color="navy" loading={loading} />
+                deltaLabel={ytdLabel} icon="ð" color="navy" loading={loading} />
               <KPICard title="Actual YTD (B2B+B2C)" value={combinedRevenue}
                 delta={b2cSummary?.vs_ly_pct} deltaLabel={`vs ${year - 1}`}
-                icon="🌐" color="orange" loading={loading} />
+                icon="ð" color="orange" loading={loading} />
               <KPICard title="PAX Total (B2B+B2C)" value={combinedPAX}
-                valueType="int" icon="🎫" color="green" loading={loading} />
+                valueType="int" icon="ð«" color="green" loading={loading} />
               <KPICard title="% Realizare Plan" value={combinedVsPlanPct}
                 valueType="pct" deltaLabel={ytdLabel}
-                icon="🎯" color="purple" loading={loading} />
+                icon="ð¯" color="purple" loading={loading} />
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -289,15 +289,15 @@ export default function App() {
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard title="Plan B2B YTD" value={b2bSummary?.plan}
-                deltaLabel={ytdLabel} icon="📋" color="navy" loading={loading} />
+                deltaLabel={ytdLabel} icon="ð" color="navy" loading={loading} />
               <KPICard title="Actual B2B YTD" value={b2bSummary?.revenue}
                 delta={b2bSummary?.vs_ly_pct} deltaLabel={`vs ${year-1}`}
-                icon="💼" color="orange" loading={loading} />
+                icon="ð¼" color="orange" loading={loading} />
               <KPICard title="PAX B2B" value={b2bSummary?.pax}
-                valueType="int" icon="🎫" color="green" loading={loading} />
+                valueType="int" icon="ð«" color="green" loading={loading} />
               <KPICard title="% Realizare Plan B2B" value={b2bSummary?.vs_plan_pct}
                 valueType="pct" deltaLabel={ytdLabel}
-                icon="🎯" color="purple" loading={loading} />
+                icon="ð¯" color="purple" loading={loading} />
             </div>
 
             <RevenueChart
@@ -323,15 +323,15 @@ export default function App() {
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <KPICard title="Plan B2C YTD" value={b2cSummary?.plan}
-                deltaLabel={ytdLabel} icon="📋" color="navy" loading={loading} />
+                deltaLabel={ytdLabel} icon="ð" color="navy" loading={loading} />
               <KPICard title="Actual B2C YTD" value={b2cSummary?.revenue}
                 delta={b2cSummary?.vs_ly_pct} deltaLabel={`vs ${year-1}`}
-                icon="🌐" color="orange" loading={loading} />
+                icon="ð" color="orange" loading={loading} />
               <KPICard title="PAX B2C" value={b2cSummary?.pax}
-                valueType="int" icon="🎫" color="green" loading={loading} />
+                valueType="int" icon="ð«" color="green" loading={loading} />
               <KPICard title="% Realizare Plan B2C" value={b2cSummary?.vs_plan_pct}
                 valueType="pct" deltaLabel={ytdLabel}
-                icon="🎯" color="purple" loading={loading} />
+                icon="ð¯" color="purple" loading={loading} />
             </div>
 
             <RevenueChart
@@ -356,7 +356,7 @@ export default function App() {
 
       <footer className="border-t border-gray-200 bg-white mt-8 py-4">
         <div className="max-w-screen-2xl mx-auto px-6 flex items-center justify-between text-xs text-gray-400 flex-wrap gap-2">
-          <span>\u00a9 {new Date().getFullYear()} Christian Tour \u2014 Sales Dashboard</span>
+          <span>© {new Date().getFullYear()} Christian Tour — Sales Dashboard</span>
           <span>Date actualizate automat la fiecare ora din SharePoint</span>
         </div>
       </footer>
