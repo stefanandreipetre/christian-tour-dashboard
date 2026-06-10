@@ -214,7 +214,7 @@ export default function App() {
     }
   })
 
-  const agenciesWithLY = agencies.map(a => {
+  const agenciesWithLY = agencies.filter(a => a.agency !== 'TOTAL').map(a => {
     const ly = agenciesLY.find(x => x.agency === a.agency)
     const lyRev = ly?.revenue ?? null
     const vs_ly_pct = (lyRev && a.revenue) ? +((a.revenue / lyRev - 1) * 100).toFixed(1) : null
