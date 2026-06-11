@@ -186,11 +186,18 @@ export default function App() {
 
   const b2bSummary = aggregateSummary(b2bSummaryData, ytdMonth)
   const b2cSummary = aggregateSummary(b2cSummaryData, ytdMonth)
+  const b2bSummaryLY = aggregateSummary(b2bSumLYData, ytdMonth)
 
   const combinedRevenue   = (b2bSummary?.revenue || 0) + (b2cSummary?.revenue || 0)
   const combinedPlan      = (b2bSummary?.plan    || 0) + (b2cSummary?.plan    || 0)
   const combinedPAX       = (b2bSummary?.pax     || 0) + (b2cSummary?.pax     || 0)
   const combinedVsPlanPct = combinedPlan ? +((combinedRevenue / combinedPlan) * 100).toFixed(1) : null
+  const combinedLY = (b2bSummaryLY?.revenue || 0) + (b2cSummary?.ly || 0)
+  const combinedVsLYPct = combinedLY ? +((combinedRevenue / combinedLY) * 100).toFixed(1) : null
+  const b2bVsLYPct = (b2bSummary?.revenue && b2bSummaryLY?.revenue)
+    ? +((b2bSummary.revenue / b2bSummaryLY.revenue) * 100).toFixed(1) : null
+  const b2cVsLYPct = (b2cSummary?.revenue && b2cSummary?.ly)
+    ? +((b2cSummary.revenue / b2cSummary.ly) * 100).toFixed(1) : null
   const ytdLabel = `Ian - ${MN[ytdMonth - 1]} ${year}`
 
   const b2cChartRows = toChartRows(b2cSummaryData, ytdMonth)
@@ -249,7 +256,7 @@ export default function App() {
 
         {tab === 'overview' && (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <KPICard title="Plan YTD (B2B+B2C)" value={combinedPlan}
                 deltaLabel={ytdLabel} icon="📋" color="navy" loading={loading} />
               <KPICard title="Actual YTD (B2B+B2C)" value={combinedRevenue}
@@ -260,6 +267,9 @@ export default function App() {
               <KPICard title="% Realizare Plan" value={combinedVsPlanPct}
                 valueType="pct" deltaLabel={ytdLabel}
                 icon="🎯" color="purple" loading={loading} />
+              <KPICard title="% Realizare vs LY" value={combinedVsLYPct}
+                valueType="pct" deltaLabel={ytdLabel}
+                icon="📈" color="teal" loading={loading} />
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -287,7 +297,7 @@ export default function App() {
 
         {tab === 'b2b' && (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <KPICard title="Plan B2B YTD" value={b2bSummary?.plan}
                 deltaLabel={ytdLabel} icon="📋" color="navy" loading={loading} />
               <KPICard title="Actual B2B YTD" value={b2bSummary?.revenue}
@@ -298,6 +308,9 @@ export default function App() {
               <KPICard title="% Realizare Plan B2B" value={b2bSummary?.vs_plan_pct}
                 valueType="pct" deltaLabel={ytdLabel}
                 icon="🎯" color="purple" loading={loading} />
+              <KPICard title="% Realizare vs LY B2B" value={b2bVsLYPct}
+                valueType="pct" deltaLabel={ytdLabel}
+                icon="📈" color="teal" loading={loading} />
             </div>
 
             <RevenueChart
@@ -321,7 +334,7 @@ export default function App() {
 
         {tab === 'b2c' && (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <KPICard title="Plan B2C YTD" value={b2cSummary?.plan}
                 deltaLabel={ytdLabel} icon="📋" color="navy" loading={loading} />
               <KPICard title="Actual B2C YTD" value={b2cSummary?.revenue}
@@ -332,6 +345,9 @@ export default function App() {
               <KPICard title="% Realizare Plan B2C" value={b2cSummary?.vs_plan_pct}
                 valueType="pct" deltaLabel={ytdLabel}
                 icon="🎯" color="purple" loading={loading} />
+              <KPICard title="% Realizare vs LY B2C" value={b2cVsLYPct}
+                valueType="pct" deltaLabel={ytdLabel}
+                icon="📈" color="teal" loading={loading} />
             </div>
 
             <RevenueChart
