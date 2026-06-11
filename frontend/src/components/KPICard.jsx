@@ -15,6 +15,7 @@ export default function KPICard({ title, value, valueType, delta, deltaLabel, ic
     navy:   { bg: 'bg-ct-navy',   text: 'text-ct-navy',   light: 'bg-blue-50'   },
     green:  { bg: 'bg-emerald-500', text: 'text-emerald-600', light: 'bg-emerald-50' },
     purple: { bg: 'bg-violet-500', text: 'text-violet-600', light: 'bg-violet-50'  },
+    teal:   { bg: 'bg-teal-500',   text: 'text-teal-600',   light: 'bg-teal-50'   },
   }
   const c = colorMap[color] || colorMap.orange
 
