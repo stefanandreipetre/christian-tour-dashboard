@@ -1046,7 +1046,12 @@ def merge_daily_into_cache(xlsx_path: str, valid_branches: Set[str],
         if not b2b_daily:
             logger.warning("Phase 2: no B2B daily records found - returning unchanged caches")
             return b2c_ts, b2b_ts
-        b2b_updated = b2b_ts + b2b_daily
+        b2b_combined = b2b_ts + b2b_daily
+        # Strip out any stale records from legacy sheets (e.g. old "B2B LY" cache data)
+        b2b_updated = [r for r in b2b_combined if r.get("sheet") not in ("B2B LY",)]
+        if len(b2b_combined) != len(b2b_updated):
+            logger.warning("Phase 2: filtered out %d stale B2B records (legacy sheet)",
+                           len(b2b_combined) - len(b2b_updated))
         # Stream B2C Daily PAX and merge into b2c_ts
         b2c_pax = _stream_b2c_daily_direct(xlsx_path, valid_branches)
         if b2c_pax:
